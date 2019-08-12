@@ -19,12 +19,12 @@
 #Updates and additions for Blender 2.6X by Derek McPherson
 #
 bl_info = {
-    "name": "Quake 3 .MD3 (+shaders)",
-    "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX",
+    "name": "GZDoom .MD3",
+    "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Nash Muhandes",
     "version": (1, 6, 3), # 11th of July 2012 - CoDEmanX
     "blender": (2, 6, 3),
-    "location": "File > Export > Quake 3 model (.md3)",
-    "description": "Export mesh to Quake 3 model with vertex animation (.md3)",
+    "location": "File > Export > GZDoom model (.md3)",
+    "description": "Export mesh to GZDoom model with vertex animation (.md3)",
     "warning": "",
     "wiki_url": "",
     "tracker_url": "http://www.katsbits.com/smforum/index.php?topic=275.0",
@@ -802,7 +802,7 @@ class ExportMD3(bpy.types.Operator):
     return context.active_object != None
 
 def menu_func(self, context):
-  self.layout.operator(ExportMD3.bl_idname, text="MD3 (+shaders)", icon='BLENDER')
+  self.layout.operator(ExportMD3.bl_idname, text="GZDoom MD3", icon='BLENDER')
   
 def register():
   bpy.utils.register_class(ExportMD3)
