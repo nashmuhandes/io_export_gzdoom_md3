@@ -20,8 +20,8 @@
 #
 bl_info = {
     "name": "GZDoom .MD3",
-    "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Nash Muhandes",
-    "version": (1, 6, 3), # 11th of July 2012 - CoDEmanX
+    "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Mexicouger, Nash Muhandes",
+    "version": (1, 6, 4), # 24th of August 2012 - Mexicouger
     "blender": (2, 6, 3),
     "location": "File > Export > GZDoom model (.md3)",
     "description": "Export mesh to GZDoom model with vertex animation (.md3)",
@@ -274,7 +274,7 @@ class md3Tag:
 		
 	def Save(self, file):
 		tmpData = [0] * 13
-		tmpData[0] = str.encode(self.name)
+		tmpData[0] = self.name
 		tmpData[1] = float(self.origin[0])
 		tmpData[2] = float(self.origin[1])
 		tmpData[3] = float(self.origin[2])
@@ -287,7 +287,7 @@ class md3Tag:
 		tmpData[10] = float(self.axis[6])
 		tmpData[11] = float(self.axis[7])
 		tmpData[12] = float(self.axis[8])
-		data = struct.pack(self.binaryFormat, tmpData[0],tmpData[1],tmpData[2],tmpData[3],tmpData[4],tmpData[5],tmpData[6], tmpData[7], tmpData[8], tmpData[9], tmpData[10], tmpData[11], tmpData[12])
+		data = struct.pack(self.binaryFormat, tmpData[0].encode('utf-8'),tmpData[1],tmpData[2],tmpData[3],tmpData[4],tmpData[5],tmpData[6], tmpData[7], tmpData[8], tmpData[9], tmpData[10], tmpData[11], tmpData[12])
 		file.write(data)
 	
 class md3Frame:
@@ -539,6 +539,8 @@ def save_md3(settings):###################### MAIN BODY
   actobject = bpy.context.scene.objects.active
   selobjects = bpy.context.selected_objects
 
+  empties = []
+
   scene_maxs = [0, 0, 0]
   for obj in selobjects:
     if obj.type == 'MESH':
@@ -709,25 +711,29 @@ def save_md3(settings):###################### MAIN BODY
       bpy.data.meshes.remove(nobj)
       obj = []
 
-    elif obj.type == 'EMPTY':# I think this is all wrong (the matrix locations)
-      md3.numTags += 1
-      for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
-        bpy.context.scene.set_frame(frame)     
-        ntag = md3Tag()
-        ntag.name = obj.name
-        ntag.origin[0] = round((obj.matrix_world[3][0] * settings.scale) + settings.offsetx,5)
-        ntag.origin[1] = round((obj.matrix_world[3][1] * settings.scale) + settings.offsety,5)
-        ntag.origin[2] = round((obj.matrix_world[3][2] * settings.scale) + settings.offsetz,5)
-        ntag.axis[0] = obj.matrix_world[0][0]
-        ntag.axis[1] = obj.matrix_world[0][1]
-        ntag.axis[2] = obj.matrix_world[0][2]
-        ntag.axis[3] = obj.matrix_world[1][0]
-        ntag.axis[4] = obj.matrix_world[1][1]
-        ntag.axis[5] = obj.matrix_world[1][2]
-        ntag.axis[6] = obj.matrix_world[2][0]
-        ntag.axis[7] = obj.matrix_world[2][1]
-        ntag.axis[8] = obj.matrix_world[2][2]
-        md3.tags.append(ntag)
+    elif obj.type == 'EMPTY':
+      empties.append(obj)
+      
+  #write empties(=tags) in correct order - tag1frame1, tag2frame1, ..., tag1frame2, tag2frame2, ...
+  md3.numTags = len(empties)
+  for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
+    bpy.context.scene.frame_set(frame)
+    for obj in empties:
+      ntag = md3Tag()
+      ntag.name = obj.name
+      ntag.origin[0] = round((obj.matrix_world[0][3] * settings.scale) + settings.offsetx,5)
+      ntag.origin[1] = round((obj.matrix_world[1][3] * settings.scale) + settings.offsety,5)
+      ntag.origin[2] = round((obj.matrix_world[2][3] * settings.scale) + settings.offsetz,5)
+      ntag.axis[0] = obj.matrix_world[0][0]
+      ntag.axis[1] = obj.matrix_world[1][0]
+      ntag.axis[2] = obj.matrix_world[2][0]
+      ntag.axis[3] = obj.matrix_world[0][1]
+      ntag.axis[4] = obj.matrix_world[1][1]
+      ntag.axis[5] = obj.matrix_world[2][1]
+      ntag.axis[6] = obj.matrix_world[0][2]
+      ntag.axis[7] = obj.matrix_world[1][2]
+      ntag.axis[8] = obj.matrix_world[2][2]
+      md3.tags.append(ntag)
   
   # [Nash] restore object rotation
   for obj in selobjects:
