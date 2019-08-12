@@ -539,44 +539,26 @@ def save_md3(settings):###################### MAIN BODY
   actobject = bpy.context.scene.objects.active
   selobjects = bpy.context.selected_objects
 
-######Find scale value for fitting very small objects to md3 world space
-  scale_md3 = True
-  if settings.scale != 1:
-    scale_md3 = False #Allows manual scaling to override auto scaling
   scene_maxs = [0, 0, 0]
-  if scale_md3 == True:
-    for obj in selobjects:
-      if obj.type == 'MESH':
-          
-        # CoDEmanX: Bmesh
-        if not obj.data.tessfaces and obj.data.polygons:
-          obj.data.calc_tessface()
-          
-        obj_maxs = [0] * 3
-        for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
-          bpy.context.scene.frame_set(frame)
-          for i in range(0,3):
-            if obj.dimensions[i] == 0:
-              scale_md3 = False #Cancel if any object has an axis dimension of 0 (2D Objects)
-            obj_maxs[i] = round(max(obj_maxs[i],obj.dimensions[i]),5)          
-          if dumpall: message(log,"Object bounds for"+str(frame)+str(obj.dimensions))
-        if dumpall: message(log,"Object maxs"+str(obj_maxs))
-        scene_maxs = max(scene_maxs,obj_maxs)
-      if dumpall: message(log,"Selected objects maxs"+str(scene_maxs))
-    if scale_md3 == True:
-      scene_minimum = min(scene_maxs[0],scene_maxs[1],scene_maxs[2])
-      scene_maximum = max(scene_maxs[0],scene_maxs[1],scene_maxs[2])
-      if dumpall: message(log,"Selected objects min single axis dimension "+str(scene_minimum))
-      if dumpall: message(log,"Selected objects max single axis dimension "+str(scene_maximum))
-      if scene_minimum < 25:
-        my_scale = round(25/scene_minimum,2)
-        if scene_maximum * my_scale > 750:#Selected Objects bounding box ratio for auto scale is
-                        # 1 min axis dimension to 30 max axis dimension
-          scale_md3 = False #Cancel if autoscaling makes any object too big (??750??)
-      else: scale_md3 = False #for objects large enough not to need scaling   
-    if scale_md3 == True:
-      settings.scale = my_scale      
-      message(log,"Scaling export by a value of " + str(my_scale) + " to fit MD3 space")
+  for obj in selobjects:
+    if obj.type == 'MESH':
+      # CoDEmanX: Bmesh
+      if not obj.data.tessfaces and obj.data.polygons:
+        obj.data.calc_tessface()
+        
+      obj_maxs = [0] * 3
+      for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
+        bpy.context.scene.frame_set(frame)
+        for i in range(0,3):
+          obj_maxs[i] = round(max(obj_maxs[i],obj.dimensions[i]),5)          
+        if dumpall: message(log,"Object bounds for"+str(frame)+str(obj.dimensions))
+      if dumpall: message(log,"Object maxs"+str(obj_maxs))
+      scene_maxs = max(scene_maxs,obj_maxs)
+    if dumpall: message(log,"Selected objects maxs"+str(scene_maxs))
+  scene_minimum = min(scene_maxs[0],scene_maxs[1],scene_maxs[2])
+  scene_maximum = max(scene_maxs[0],scene_maxs[1],scene_maxs[2])
+  if dumpall: message(log,"Selected objects min single axis dimension "+str(scene_minimum))
+  if dumpall: message(log,"Selected objects max single axis dimension "+str(scene_maximum))
 
 ####### Convert to MD3 
   for obj in selobjects:
@@ -749,8 +731,6 @@ def save_md3(settings):###################### MAIN BODY
     message(log,"MD3 saved to " + settings.savepath)
     elapsedtime = round(time.clock() - starttime,5)
     message(log,"Elapsed " + str(elapsedtime) + " seconds")
-    if scale_md3 == True:
-      message(log,"Scaled export by a value of " + str(my_scale) + " to fit MD3 space")      
   else:
     message(log,"Select an object to export!")
     
@@ -774,7 +754,7 @@ class ExportMD3(bpy.types.Operator):
   md3logtype = EnumProperty(name="Save log", items=logenum, description="File logging options",default =str(default_logtype))
   md3dumpall = BoolProperty(name="Dump all", description="Dump all data for md3 to log",default=default_dumpall)
   md3triangulate = BoolProperty(name="Triangulate", description="Triangulate mesh during export",default=default_triangulate)
-  md3scale = FloatProperty(name="Manual Scale", description="Manually scale all objects from world origin (0,0,0) Overrides auto scaling",default=1.0,precision=5)
+  md3scale = FloatProperty(name="Scale", description="Scale all objects from world origin (0,0,0)",default=1.0,precision=5)
   md3offsetx = FloatProperty(name="Offset X", description="Transition scene along x axis",default=0.0,precision=5)
   md3offsety = FloatProperty(name="Offset Y", description="Transition scene along y axis",default=0.0,precision=5)
   md3offsetz = FloatProperty(name="Offset Z", description="Transition scene along z axis",default=0.0,precision=5)
