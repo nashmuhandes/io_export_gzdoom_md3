@@ -33,7 +33,7 @@ bl_info = {
 import bpy, struct, math, os, time
 
 ##### User options: Exporter default settings
-default_logtype = 'overwrite' ## console, overwrite, append
+default_logtype = 'console' ## console, overwrite, append
 default_dumpall = False 
 default_triangulate = True
 
