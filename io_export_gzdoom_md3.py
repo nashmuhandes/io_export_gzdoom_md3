@@ -561,6 +561,11 @@ def save_md3(settings):###################### MAIN BODY
   if dumpall: message(log,"Selected objects max single axis dimension "+str(scene_maximum))
 
 ####### Convert to MD3 
+  # [Nash] fix object angle for GZDoom
+  # We will do this in a separate loop to not mess with the original code
+  for obj in selobjects:
+    obj.rotation_euler = (0, 0, 1.5708)
+
   for obj in selobjects:
     if obj.type == 'MESH':
       convert_to_tris = False      
@@ -721,6 +726,10 @@ def save_md3(settings):###################### MAIN BODY
         ntag.axis[7] = obj.matrix_world[2][1]
         ntag.axis[8] = obj.matrix_world[2][2]
         md3.tags.append(ntag)
+  
+  # [Nash] restore object rotation
+  for obj in selobjects:
+    obj.rotation_euler = (0, 0, 0)
   
   if bpy.context.selected_objects:
     file = open(settings.savepath, "wb")
