@@ -564,7 +564,7 @@ def save_md3(settings):###################### MAIN BODY
   # [Nash] fix object angle for GZDoom
   # We will do this in a separate loop to not mess with the original code
   for obj in selobjects:
-    obj.rotation_euler = (0, 0, 1.5708)
+    obj.rotation_euler = (0, 0, obj.rotation_euler[2] + math.radians(90))
 
   for obj in selobjects:
     if obj.type == 'MESH':
@@ -729,7 +729,7 @@ def save_md3(settings):###################### MAIN BODY
   
   # [Nash] restore object rotation
   for obj in selobjects:
-    obj.rotation_euler = (0, 0, 0)
+    obj.rotation_euler = (0, 0, obj.rotation_euler[2] - math.radians(90))
   
   if bpy.context.selected_objects:
     file = open(settings.savepath, "wb")
