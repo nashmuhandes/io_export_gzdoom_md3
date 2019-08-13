@@ -618,7 +618,7 @@ def save_md3(settings):###################### MAIN BODY
  
       vertlist = []
       myInt = 0
-      for f,face in enumerate(nobj.tessfaces):
+      for face in nobj.tessfaces:
         faceTexCoords = texCoords[myInt] 
         myInt = myInt + 1 
         ntri = md3Triangle()
@@ -633,13 +633,18 @@ def save_md3(settings):###################### MAIN BODY
           match = 0
           match_index = 0
           for i,vi in enumerate(vertlist):
-            if vi == vert_index:
+            if vi[0] == vert_index:
               if nsurface.uv[i].u == uv_u and nsurface.uv[i].v == uv_v:
                 match = 1
                 match_index = i
 
           if match == 0:
-            vertlist.append(vert_index)
+            vnorm = None
+            if not face.use_smooth:
+              vnorm = face.normal
+            else:
+              vnorm = nobj.vertices[vert_index].normal
+            vertlist.append((vert_index,vnorm))
             ntri.indexes[v] = nsurface.numVerts
             ntex = md3TexCoord()
             ntex.u = uv_u
@@ -688,13 +693,13 @@ def save_md3(settings):###################### MAIN BODY
 
         ## Locate, sort, encode verts and normals   
         for vi in vertlist:
-          vert = fobj.vertices[vi]
+          vert = fobj.vertices[vi[0]]
           nvert = md3Vert()
           nvert.xyz = my_matrix * vert.co
           nvert.xyz[0] = round((nvert.xyz[0] * settings.scale) + settings.offsetx,5)
           nvert.xyz[1] = round((nvert.xyz[1] * settings.scale) + settings.offsety,5)
           nvert.xyz[2] = round((nvert.xyz[2] * settings.scale) + settings.offsetz,5)
-          nvert.normal = nvert.Encode(vert.normal)
+          nvert.normal = nvert.Encode(vi[1])
           ## mins, maxs, radius... count frames and surfaces
           for i in range(0,3):
             nframe.mins[i] = min(nframe.mins[i],nvert.xyz[i])
