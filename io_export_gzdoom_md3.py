@@ -88,12 +88,13 @@ class md3Vert:
 		x = x/l
 		y = y/l
 		z = z/l
-		
-		if (x == 0.0) & (y == 0.0) :
-			if z > 0.0:
-				return 0
-			else:
-				return (128 << 8)
+
+		# [Nash] commented this out to fix wrong normals for faces pointing straight-down
+		#if (x == 0.0) & (y == 0.0) :
+		#	if z > 0.0:
+		#		return 0
+		#	else:
+		#		return (128 << 8)
 		
 		lng = math.acos(z) * 255 / (2 * math.pi)
 		lat = math.atan2(y, x) * 255 / (2 * math.pi)
