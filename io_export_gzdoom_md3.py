@@ -633,18 +633,17 @@ def save_md3(settings):###################### MAIN BODY
           uv_v = round(faceTexCoords.uv[v][1],5)
           match = 0
           match_index = 0
+          vnorm = nobj.vertices[vert_index].normal
+          if not face.use_smooth:
+            vnorm = face.normal
           for i,vi in enumerate(vertlist):
             if vi[0] == vert_index:
-              if nsurface.uv[i].u == uv_u and nsurface.uv[i].v == uv_v:
+              if (nsurface.uv[i].u == uv_u and nsurface.uv[i].v == uv_v and 
+                  vi[1] == vnorm):
                 match = 1
                 match_index = i
 
           if match == 0:
-            vnorm = None
-            if not face.use_smooth:
-              vnorm = face.normal
-            else:
-              vnorm = nobj.vertices[vert_index].normal
             vertlist.append((vert_index,vnorm))
             ntri.indexes[v] = nsurface.numVerts
             ntex = md3TexCoord()
