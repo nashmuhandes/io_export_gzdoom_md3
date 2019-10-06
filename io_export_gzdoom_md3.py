@@ -598,8 +598,8 @@ def save_md3(settings):###################### MAIN BODY
         message(log,"Exporting UV texture coordinates for " + obj.name)
         message(log,"Exporting " + obj.name)
         nobj = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
-     
-      UVImage = nobj.tessface_uv_textures[0] # ERROR: An object needs to be unwrapped. 
+
+      UVImage = nobj.tessface_uv_textures.active # ERROR: An object needs to be unwrapped. 
       texCoords = UVImage.data
       nsurface = md3Surface() 
       nsurface.name = obj.name
