@@ -506,20 +506,30 @@ def print_md3(log,md3,dumpall):
       message(log,"!Warning: Vertex limit (" + str(surface.numVerts) + "/" + str(MD3_MAX_VERTICES) + ") reached for surface " + surface.name)
     if surface.numTriangles >= MD3_MAX_TRIANGLES:
       message(log,"!Warning: Triangle limit (" + str(surface.numTriangles) + "/" + str(MD3_MAX_TRIANGLES) + ") reached for surface " + surface.name)
-  
+
   if md3.numTags >= MD3_MAX_TAGS:
     message(log,"!Warning: Tag limit (" + str(md3.numTags) + "/" + str(MD3_MAX_TAGS) + ") reached for md3!")
   if md3.numSurfaces >= MD3_MAX_SURFACES:
     message(log,"!Warning: Surface limit (" + str(md3.numSurfaces) + "/" + str(MD3_MAX_SURFACES) + ") reached for md3!")
   if md3.numFrames >= MD3_MAX_FRAMES:
     message(log,"!Warning: Frame limit (" + str(md3.numFrames) + "/" + str(MD3_MAX_FRAMES) + ") reached for md3!")
-    
+
   message(log,"Total Shaders: " + str(shader_count))
   message(log,"Total Triangles: " + str(tri_count))
   message(log,"Total Vertices: " + str(vert_count))
 
-def save_md3(settings):###################### MAIN BODY     
+# From Blender 2.79 scripts/addons/io_scene_obj/export_obj.py
+def mesh_triangulate(me):
+  import bmesh
+  bm = bmesh.new()
+  bm.from_mesh(me)
+  bmesh.ops.triangulate(bm, faces=bm.faces)
+  bm.to_mesh(me)
+  bm.free()
+
+def save_md3(settings):###################### MAIN BODY
   from collections import OrderedDict
+  from mathutils import Euler
   starttime = time.clock()#start timer
   newlogpath = os.path.splitext(settings.savepath)[0] + ".log"
   dumpall = settings.dumpall
@@ -567,49 +577,37 @@ def save_md3(settings):###################### MAIN BODY
 ####### Convert to MD3 
   # [Nash] fix object angle for GZDoom
   # We will do this in a separate loop to not mess with the original code
-  for obj in selobjects:
-    bpy.context.scene.objects.active = obj
-    obj.rotation_euler = (0, 0, obj.rotation_euler[2] + math.radians(90))
-    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+  #for obj in selobjects:
+    #bpy.context.scene.objects.active = obj
+    #obj.rotation_euler = (0, 0, obj.rotation_euler[2] + math.radians(90))
+    #bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
   for obj in selobjects:
+    rotation_fix = Euler()
+    rotation_fix.z = math.radians(90)
+    fix_transform = rotation_fix.to_matrix().to_4x4()
     if obj.type == 'MESH':
-      convert_to_tris = False      
+      obj_mesh = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
+      mesh_triangulate(obj_mesh)
+      obj_mesh.transform(obj.matrix_world * fix_transform)
+      # If negative scaling, we have to invert the normals...
+      if obj.matrix_world.determinant() < 0.0:
+          obj_mesh.flip_normals()
+      obj_mesh.calc_tessface()
       bpy.context.scene.frame_set(bpy.context.scene.frame_start)
-
-      for face in obj.data.tessfaces:
-        if (len(face.vertices) > 3) & settings.triangulate == True:
-          convert_to_tris = True                             
-      if convert_to_tris == True:
-        me_SaveMesh = obj.data.copy()      
-        scene = bpy.context.scene      
-        scene.objects.active = obj
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.select_all(action='SELECT')
-        bpy.ops.mesh.quads_convert_to_tris()
-        bpy.ops.object.mode_set(mode='OBJECT')
-        scene.objects.active = actobject      
-        message(log,"Converted quads in UV map of " + obj.name + " to tris.")
-        message(log,"Exporting UV texture coordinates for " + obj.name)
-        message(log,"Exporting " + obj.name)
-        nobj = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
-        obj.data = me_SaveMesh
-        me_SaveMesh = []        
-      else:
-        message(log,"Exporting UV texture coordinates for " + obj.name)
-        message(log,"Exporting " + obj.name)
-        nobj = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
-
-      UVImage = nobj.tessface_uv_textures.active # ERROR: An object needs to be unwrapped. 
+      message(log,"Exporting UV texture coordinates for " + obj.name)
+      message(log,"Exporting " + obj.name)
+      UVImage = obj_mesh.tessface_uv_textures.active # ERROR: An object needs to be unwrapped.
       texCoords = UVImage.data
       nsurface = md3Surface() 
       nsurface.name = obj.name
       nsurface.ident = MD3_IDENT
       nshader = md3Shader()
-      #Add only 1 shader per surface/object
+      # Add only 1 shader per surface/object
       try:
-        #Using custom properties allows a longer string
-        nshader.name = obj["md3shader"]#Set Property Value to shader path/filename
+        # Using custom properties allows a longer string
+        # Set Property Value to shader path/filename
+        nshader.name = obj["md3shader"]
       except:
         if obj.active_material:      
           nshader.name = obj.active_material.name
@@ -624,7 +622,7 @@ def save_md3(settings):###################### MAIN BODY
         faceTexCoords = texCoords[myInt] 
         myInt = myInt + 1 
         ntri = md3Triangle()
-
+        # Should not happen; mesh is triangulated before export
         if len(face.vertices) != 3:
           message(log,"Found a nontriangle face in object " + obj.name)
           continue
@@ -632,7 +630,7 @@ def save_md3(settings):###################### MAIN BODY
         for v,vert_index in enumerate(face.vertices):
           uv_u = round(faceTexCoords.uv[v][0],5)
           uv_v = round(faceTexCoords.uv[v][1],5)
-          vnorm = nobj.vertices[vert_index].normal
+          vnorm = obj_mesh.vertices[vert_index].normal
           if not face.use_smooth:
             vnorm = face.normal
           vertex_id = (vert_index, (vnorm.x, vnorm.y, vnorm.z))
@@ -651,26 +649,7 @@ def save_md3(settings):###################### MAIN BODY
     
       for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
         bpy.context.scene.frame_set(frame)
-        for face in obj.data.tessfaces:
-          if (len(face.vertices) > 3) & settings.triangulate == True:
-            convert_to_tris = True                             
-        if convert_to_tris == True:
-          me_SaveMesh = obj.data.copy()      
-          scene = bpy.context.scene      
-          scene.objects.active = obj
-          bpy.ops.object.mode_set(mode='EDIT')
-          bpy.ops.mesh.select_all(action='SELECT')
-          bpy.ops.mesh.quads_convert_to_tris()
-          bpy.ops.object.mode_set(mode='OBJECT')
-          scene.objects.active = actobject      
-          if dumpall:message(log,"Converted quads in frame " + str(frame) + " of " + obj.name + " to tris.")
-          if dumpall:message(log,"Exporting frame " + str(frame) + " of " + obj.name)
-          fobj = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
-          obj.data = me_SaveMesh
-          me_SaveMesh = []        
-        else:
-          if dumpall:message(log,"Exporting frame " + str(frame) + " of " + obj.name)
-          fobj = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')        
+        if dumpall:message(log,"Exporting frame " + str(frame) + " of " + obj.name)
         nframe = md3Frame()
         nframe.name = str(frame)
         ## Apply location data from objects and armatures
@@ -686,7 +665,7 @@ def save_md3(settings):###################### MAIN BODY
 
         ## Locate, sort, encode verts and normals   
         for vi in vertlist.keys():
-          vert = fobj.vertices[vi[0]]
+          vert = obj_mesh.vertices[vi[0]]
           nvert = md3Vert()
           nvert.xyz = my_matrix * vert.co
           nvert.xyz[0] = round((nvert.xyz[0] * settings.scale) + settings.offsetx,5)
@@ -703,11 +682,8 @@ def save_md3(settings):###################### MAIN BODY
           nsurface.verts.append(nvert) 
         md3.frames.append(nframe)
         nsurface.numFrames += 1
-        bpy.data.meshes.remove(fobj)
       md3.surfaces.append(nsurface)
       md3.numSurfaces += 1
-      bpy.data.meshes.remove(nobj)
-      obj = []
 
     elif obj.type == 'EMPTY':
       empties.append(obj)
@@ -732,13 +708,13 @@ def save_md3(settings):###################### MAIN BODY
       ntag.axis[7] = obj.matrix_world[1][2]
       ntag.axis[8] = obj.matrix_world[2][2]
       md3.tags.append(ntag)
-  
+
   # [Nash] restore object rotation
-  for obj in selobjects:
-    bpy.context.scene.objects.active = obj
-    obj.rotation_euler = (0, 0, obj.rotation_euler[2] - math.radians(90))
-    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
-  
+  #for obj in selobjects:
+    #bpy.context.scene.objects.active = obj
+    #obj.rotation_euler = (0, 0, obj.rotation_euler[2] - math.radians(90))
+    #bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
   if bpy.context.selected_objects:
     file = open(settings.savepath, "wb")
     md3.Save(file)
