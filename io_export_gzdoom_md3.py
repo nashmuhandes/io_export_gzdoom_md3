@@ -1,18 +1,18 @@
-# ***** BEGIN GPL LICENSE BLOCK ***** 
+# ***** BEGIN GPL LICENSE BLOCK *****
 #
-# This program is free software; you can redistribute it and/or 
-# modify it under the terms of the GNU General Public License 
-# as published by the Free Software Foundation; either version 2 
-# of the License, or (at your option) any later version. 
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
 #
-# This program is distributed in the hope that it will be useful, 
-# but WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the 
-# GNU General Public License for more details. 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License 
-# along with this program; if not, write to the Free Software Foundation, 
-# Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA. 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software Foundation,
+# Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 # ***** END GPL LICENCE BLOCK *****
 #
@@ -34,7 +34,7 @@ import bpy, struct, math, os, time
 
 ##### User options: Exporter default settings
 default_logtype = 'console' ## console, overwrite, append
-default_dumpall = False 
+default_dumpall = False
 default_triangulate = True
 
 
@@ -47,7 +47,7 @@ MD3_MAX_SURFACES = 32
 MD3_MAX_FRAMES = 1024
 MD3_MAX_SHADERS = 256
 MD3_MAX_VERTICES = 8192    #4096
-MD3_MAX_TRIANGLES = 16384  #8192  
+MD3_MAX_TRIANGLES = 16384  #8192
 MD3_XYZ_SCALE = 64.0
 
 
@@ -56,14 +56,14 @@ class md3Vert:
 	xyz = []
 	normal = 0
 	binaryFormat = "<3hH"
-	
+
 	def __init__(self):
 		self.xyz = [0.0, 0.0, 0.0]
 		self.normal = 0
-		
+
 	def GetSize(self):
 		return struct.calcsize(self.binaryFormat)
-	
+
 	# copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
 	def Decode(self, latlng):
 		lat = (latlng >> 8) & 0xFF;
@@ -75,7 +75,7 @@ class md3Vert:
 		z =                 math.cos(lng)
 		retval = [ x, y, z ]
 		return retval
-	
+
 	# copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
 	def Encode(self, normal):
 		x = normal[0]
@@ -95,12 +95,12 @@ class md3Vert:
 		#		return 0
 		#	else:
 		#		return (128 << 8)
-		
+
 		lng = math.acos(z) * 255 / (2 * math.pi)
 		lat = math.atan2(y, x) * 255 / (2 * math.pi)
 		retval = ((int(lat) & 0xFF) << 8) | (int(lng) & 0xFF)
 		return retval
-		
+
 	def Save(self, file):
 		tmpData = [0] * 4
 		tmpData[0] = int(self.xyz[0] * MD3_XYZ_SCALE)
@@ -109,7 +109,7 @@ class md3Vert:
 		tmpData[3] = self.normal
 		data = struct.pack(self.binaryFormat, tmpData[0], tmpData[1], tmpData[2], tmpData[3])
 		file.write(data)
-		
+
 class md3TexCoord:
 	u = 0.0
 	v = 0.0
@@ -119,7 +119,7 @@ class md3TexCoord:
 	def __init__(self):
 		self.u = 0.0
 		self.v = 0.0
-		
+
 	def GetSize(self):
 		return struct.calcsize(self.binaryFormat)
 
@@ -137,7 +137,7 @@ class md3Triangle:
 
 	def __init__(self):
 		self.indexes = [ 0, 0, 0 ]
-		
+
 	def GetSize(self):
 		return struct.calcsize(self.binaryFormat)
 
@@ -152,13 +152,13 @@ class md3Triangle:
 class md3Shader:
 	name = ""
 	index = 0
-	
+
 	binaryFormat = "<%dsi" % MAX_QPATH
 
 	def __init__(self):
 		self.name = ""
 		self.index = 0
-		
+
 	def GetSize(self):
 		return struct.calcsize(self.binaryFormat)
 
@@ -186,9 +186,9 @@ class md3Surface:
 	triangles = []
 	uv = []
 	verts = []
-	
+
 	binaryFormat = "<4s%ds10i" % MAX_QPATH  # 1 int, name, then 10 ints
-	
+
 	def __init__(self):
 		self.ident = ""
 		self.name = ""
@@ -206,7 +206,7 @@ class md3Surface:
 		self.triangles = []
 		self.uv = []
 		self.verts = []
-		
+
 	def GetSize(self):
 		sz = struct.calcsize(self.binaryFormat)
 		self.ofsTriangles = sz
@@ -223,7 +223,7 @@ class md3Surface:
 			sz += v.GetSize()
 		self.ofsEnd = sz
 		return self.ofsEnd
-	
+
 	def Save(self, file):
 		self.GetSize()
 		tmpData = [0] * 12
@@ -262,17 +262,17 @@ class md3Tag:
 	name = ""
 	origin = []
 	axis = []
-	
+
 	binaryFormat="<%ds3f9f" % MAX_QPATH
-	
+
 	def __init__(self):
 		self.name = ""
 		self.origin = [0, 0, 0]
 		self.axis = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-		
+
 	def GetSize(self):
 		return struct.calcsize(self.binaryFormat)
-		
+
 	def Save(self, file):
 		tmpData = [0] * 13
 		tmpData[0] = self.name
@@ -290,23 +290,23 @@ class md3Tag:
 		tmpData[12] = float(self.axis[8])
 		data = struct.pack(self.binaryFormat, tmpData[0].encode('utf-8'),tmpData[1],tmpData[2],tmpData[3],tmpData[4],tmpData[5],tmpData[6], tmpData[7], tmpData[8], tmpData[9], tmpData[10], tmpData[11], tmpData[12])
 		file.write(data)
-	
+
 class md3Frame:
 	mins = 0
 	maxs = 0
 	localOrigin = 0
 	radius = 0.0
 	name = ""
-	
+
 	binaryFormat="<3f3f3ff16s"
-	
+
 	def __init__(self):
 		self.mins = [0, 0, 0]
 		self.maxs = [0, 0, 0]
 		self.localOrigin = [0, 0, 0]
 		self.radius = 0.0
 		self.name = ""
-		
+
 	def GetSize(self):
 		return struct.calcsize(self.binaryFormat)
 
@@ -375,7 +375,7 @@ class md3Object:
 		for s in self.surfaces:
 			self.ofsEnd += s.GetSize()
 		return self.ofsEnd
-		
+
 	def Save(self, file):
 		self.GetSize()
 		tmpData = [0] * 12
@@ -397,10 +397,10 @@ class md3Object:
 
 		for f in self.frames:
 			f.Save(file)
-			
+
 		for t in self.tags:
 			t.Save(file)
-			
+
 		for s in self.surfaces:
 			s.Save(file)
 
@@ -446,7 +446,7 @@ def print_md3(log,md3,dumpall):
   message(log,"Offset Tags: " + str(md3.ofsTags))
   message(log,"Offset Surfaces: " + str(md3.ofsSurfaces))
   message(log,"Offset end: " + str(md3.ofsEnd))
-  
+
   if dumpall:
     message(log,"Frames:")
     for f in md3.frames:
@@ -487,7 +487,7 @@ def print_md3(log,md3,dumpall):
       message(log," UVs:")
       for uv in s.uv:
         message(log,"  U: " + str(uv.u))
-        message(log,"  V: " + str(uv.v)) 
+        message(log,"  V: " + str(uv.v))
       message(log," Verts:")
       for vert in s.verts:
         message(log,"  XYZ: " + str(vert.xyz[0]) + " " + str(vert.xyz[1]) + " " + str(vert.xyz[2]))
@@ -559,12 +559,12 @@ def save_md3(settings):###################### MAIN BODY
       # CoDEmanX: Bmesh
       if not obj.data.tessfaces and obj.data.polygons:
         obj.data.calc_tessface()
-        
+
       obj_maxs = [0] * 3
       for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
         bpy.context.scene.frame_set(frame)
         for i in range(0,3):
-          obj_maxs[i] = round(max(obj_maxs[i],obj.dimensions[i]),5)          
+          obj_maxs[i] = round(max(obj_maxs[i],obj.dimensions[i]),5)
         if dumpall: message(log,"Object bounds for"+str(frame)+str(obj.dimensions))
       if dumpall: message(log,"Object maxs"+str(obj_maxs))
       scene_maxs = max(scene_maxs,obj_maxs)
@@ -574,7 +574,7 @@ def save_md3(settings):###################### MAIN BODY
   if dumpall: message(log,"Selected objects min single axis dimension "+str(scene_minimum))
   if dumpall: message(log,"Selected objects max single axis dimension "+str(scene_maximum))
 
-####### Convert to MD3 
+####### Convert to MD3
   # [Nash] fix object angle for GZDoom
   # We will do this in a separate loop to not mess with the original code
   #for obj in selobjects:
@@ -599,7 +599,7 @@ def save_md3(settings):###################### MAIN BODY
       message(log,"Exporting " + obj.name)
       UVImage = obj_mesh.tessface_uv_textures.active # ERROR: An object needs to be unwrapped.
       texCoords = UVImage.data
-      nsurface = md3Surface() 
+      nsurface = md3Surface()
       nsurface.name = obj.name
       nsurface.ident = MD3_IDENT
       nshader = md3Shader()
@@ -609,24 +609,23 @@ def save_md3(settings):###################### MAIN BODY
         # Set Property Value to shader path/filename
         nshader.name = obj["md3shader"]
       except:
-        if obj.active_material:      
+        if obj.active_material:
           nshader.name = obj.active_material.name
         else:
-          nshader.name = "NULL"      
+          nshader.name = "NULL"
       nsurface.shaders.append(nshader)
       nsurface.numShaders = 1
       # Remembers which order key/value pairs were added
       vertlist = OrderedDict()
       myInt = 0
-      for face in nobj.tessfaces:
-        faceTexCoords = texCoords[myInt] 
-        myInt = myInt + 1 
+      for face in obj_mesh.tessfaces:
+        faceTexCoords = texCoords[myInt]
+        myInt = myInt + 1
         ntri = md3Triangle()
         # Should not happen; mesh is triangulated before export
         if len(face.vertices) != 3:
           message(log,"Found a nontriangle face in object " + obj.name)
           continue
-
         for v,vert_index in enumerate(face.vertices):
           uv_u = round(faceTexCoords.uv[v][0],5)
           uv_v = round(faceTexCoords.uv[v][1],5)
@@ -646,7 +645,7 @@ def save_md3(settings):###################### MAIN BODY
             nsurface.numVerts += 1
         nsurface.triangles.append(ntri)
         nsurface.numTriangles += 1
-    
+
       for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
         bpy.context.scene.frame_set(frame)
         if dumpall:message(log,"Exporting frame " + str(frame) + " of " + obj.name)
@@ -656,14 +655,14 @@ def save_md3(settings):###################### MAIN BODY
         if obj.parent == "True":
           if obj.parent.name == "Armature":
             if obj.find_armature() != NULL:
-              skel_loc = obj.parent.location      
+              skel_loc = obj.parent.location
               nframe.localOrigin = obj.location - skel_loc
               my_matrix = obj.matrix_world * obj.matrix_parent_inverse
         else:
           nframe.localOrigin = obj.location
           my_matrix = obj.matrix_world
 
-        ## Locate, sort, encode verts and normals   
+        ## Locate, sort, encode verts and normals
         for vi in vertlist.keys():
           vert = obj_mesh.vertices[vi[0]]
           nvert = md3Vert()
@@ -679,7 +678,7 @@ def save_md3(settings):###################### MAIN BODY
           minlength = math.sqrt(math.pow(nframe.mins[0],2) + math.pow(nframe.mins[1],2) + math.pow(nframe.mins[2],2))
           maxlength = math.sqrt(math.pow(nframe.maxs[0],2) + math.pow(nframe.maxs[1],2) + math.pow(nframe.maxs[2],2))
           nframe.radius = round(max(minlength,maxlength),5)
-          nsurface.verts.append(nvert) 
+          nsurface.verts.append(nvert)
         md3.frames.append(nframe)
         nsurface.numFrames += 1
       md3.surfaces.append(nsurface)
@@ -687,7 +686,7 @@ def save_md3(settings):###################### MAIN BODY
 
     elif obj.type == 'EMPTY':
       empties.append(obj)
-      
+
   #write empties(=tags) in correct order - tag1frame1, tag2frame1, ..., tag1frame2, tag2frame2, ...
   md3.numTags = len(empties)
   for frame in range(bpy.context.scene.frame_start,bpy.context.scene.frame_end + 1):
@@ -726,7 +725,7 @@ def save_md3(settings):###################### MAIN BODY
     message(log,"Elapsed " + str(elapsedtime) + " seconds")
   else:
     message(log,"Select an object to export!")
-    
+
   if log:
     print("Logged to",newlogpath)
     log.close()
@@ -737,7 +736,7 @@ class ExportMD3(bpy.types.Operator):
   '''Export to .md3'''
   bl_idname = "export.md3"
   bl_label = 'Export MD3'
-    
+
   logenum = [("console","Console","log to console"),
              ("append","Append","append to log file"),
              ("overwrite","Overwrite","overwrite log file")]
@@ -776,7 +775,7 @@ class ExportMD3(bpy.types.Operator):
 
 def menu_func(self, context):
   self.layout.operator(ExportMD3.bl_idname, text="GZDoom MD3", icon='BLENDER')
-  
+
 def register():
   bpy.utils.register_class(ExportMD3)
   bpy.types.INFO_MT_file_export.append(menu_func)
