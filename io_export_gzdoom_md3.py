@@ -526,7 +526,7 @@ def mesh_triangulate(me):
 
 def save_md3(settings):###################### MAIN BODY
   from collections import OrderedDict
-  from mathutils import Euler
+  from mathutils import Euler, Vector
   starttime = time.clock()#start timer
   newlogpath = os.path.splitext(settings.savepath)[0] + ".log"
   dumpall = settings.dumpall
@@ -583,6 +583,8 @@ def save_md3(settings):###################### MAIN BODY
     rotation_fix = Euler()
     rotation_fix.z = math.radians(90)
     fix_transform = rotation_fix.to_matrix().to_4x4()
+    fix_transform.translation = Vector((
+      settings.offsetx, settings.offsety, settings.offsetz))
     if obj.type == 'MESH':
       obj_mesh = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
       mesh_triangulate(obj_mesh)
@@ -664,9 +666,9 @@ def save_md3(settings):###################### MAIN BODY
           vert = obj_mesh.vertices[vi[0]]
           nvert = md3Vert()
           nvert.xyz = my_matrix * vert.co
-          nvert.xyz[0] = round((nvert.xyz[0] * settings.scale) + settings.offsetx,5)
-          nvert.xyz[1] = round((nvert.xyz[1] * settings.scale) + settings.offsety,5)
-          nvert.xyz[2] = round((nvert.xyz[2] * settings.scale) + settings.offsetz,5)
+          nvert.xyz[0] = round((nvert.xyz[0] * settings.scale),5)
+          nvert.xyz[1] = round((nvert.xyz[1] * settings.scale),5)
+          nvert.xyz[2] = round((nvert.xyz[2] * settings.scale),5)
           nvert.normal = nvert.Encode(vi[1])
           ## mins, maxs, radius... count frames and surfaces
           for i in range(0,3):
