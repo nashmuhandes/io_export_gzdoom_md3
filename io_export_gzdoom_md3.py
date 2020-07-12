@@ -35,7 +35,6 @@ import bpy, struct, math, os, time
 ##### User options: Exporter default settings
 default_logtype = 'console' ## console, overwrite, append
 default_dumpall = False
-default_triangulate = True
 
 
 MAX_QPATH = 64
@@ -417,7 +416,6 @@ class md3Settings:
                name,
                logtype,
                dumpall=False,
-               triangulate=False,
                scale=1.0,
                offsetx=0.0,
                offsety=0.0,
@@ -426,7 +424,6 @@ class md3Settings:
     self.name = name
     self.logtype = logtype
     self.dumpall = dumpall
-    self.triangulate = triangulate
     self.scale = scale
     self.offsetx = offsetx
     self.offsety = offsety
@@ -745,7 +742,6 @@ class ExportMD3(bpy.types.Operator):
   md3name = StringProperty(name="MD3 Name", description="MD3 header name / skin path (64 bytes)",maxlen=64,default="")
   md3logtype = EnumProperty(name="Save log", items=logenum, description="File logging options",default =str(default_logtype))
   md3dumpall = BoolProperty(name="Dump all", description="Dump all data for md3 to log",default=default_dumpall)
-  md3triangulate = BoolProperty(name="Triangulate", description="Triangulate mesh during export",default=default_triangulate)
   md3scale = FloatProperty(name="Scale", description="Scale all objects from world origin (0,0,0)",default=1.0,precision=5)
   md3offsetx = FloatProperty(name="Offset X", description="Transition scene along x axis",default=0.0,precision=5)
   md3offsety = FloatProperty(name="Offset Y", description="Transition scene along y axis",default=0.0,precision=5)
@@ -756,7 +752,6 @@ class ExportMD3(bpy.types.Operator):
                           name = self.properties.md3name,
                           logtype = self.properties.md3logtype,
                           dumpall = self.properties.md3dumpall,
-                          triangulate = self.properties.md3triangulate,
                           scale = self.properties.md3scale,
                           offsetx = self.properties.md3offsetx,
                           offsety = self.properties.md3offsety,
