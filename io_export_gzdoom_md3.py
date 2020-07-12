@@ -519,6 +519,7 @@ def print_md3(log,md3,dumpall):
   message(log,"Total Vertices: " + str(vert_count))
 
 def save_md3(settings):###################### MAIN BODY     
+  from collections import OrderedDict
   starttime = time.clock()#start timer
   newlogpath = os.path.splitext(settings.savepath)[0] + ".log"
   dumpall = settings.dumpall
@@ -616,8 +617,8 @@ def save_md3(settings):###################### MAIN BODY
           nshader.name = "NULL"      
       nsurface.shaders.append(nshader)
       nsurface.numShaders = 1
- 
-      vertlist = []
+      # Remembers which order key/value pairs were added
+      vertlist = OrderedDict()
       myInt = 0
       for face in nobj.tessfaces:
         faceTexCoords = texCoords[myInt] 
@@ -631,28 +632,20 @@ def save_md3(settings):###################### MAIN BODY
         for v,vert_index in enumerate(face.vertices):
           uv_u = round(faceTexCoords.uv[v][0],5)
           uv_v = round(faceTexCoords.uv[v][1],5)
-          match = 0
-          match_index = 0
           vnorm = nobj.vertices[vert_index].normal
           if not face.use_smooth:
             vnorm = face.normal
-          for i,vi in enumerate(vertlist):
-            if vi[0] == vert_index:
-              if (nsurface.uv[i].u == uv_u and nsurface.uv[i].v == uv_v and 
-                  vi[1] == vnorm):
-                match = 1
-                match_index = i
-
-          if match == 0:
-            vertlist.append((vert_index,vnorm))
+          vertex_id = (vert_index, (vnorm.x, vnorm.y, vnorm.z))
+          if vertex_id in vertlist:
+            ntri.indexes[v] = vertlist[vertex_id]
+          else:
+            vertlist[vertex_id] = len(vertlist)
             ntri.indexes[v] = nsurface.numVerts
             ntex = md3TexCoord()
             ntex.u = uv_u
             ntex.v = uv_v
             nsurface.uv.append(ntex)
             nsurface.numVerts += 1
-          else:
-            ntri.indexes[v] = match_index
         nsurface.triangles.append(ntri)
         nsurface.numTriangles += 1
     
@@ -692,7 +685,7 @@ def save_md3(settings):###################### MAIN BODY
           my_matrix = obj.matrix_world
 
         ## Locate, sort, encode verts and normals   
-        for vi in vertlist:
+        for vi in vertlist.keys():
           vert = fobj.vertices[vi[0]]
           nvert = md3Vert()
           nvert.xyz = my_matrix * vert.co
