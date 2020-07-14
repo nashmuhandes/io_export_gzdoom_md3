@@ -20,14 +20,14 @@
 #
 bl_info = {
     "name": "GZDoom .MD3",
-    "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Mexicouger, Nash Muhandes",
+    "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Mexicouger, Nash Muhandes, Kevin Caccamo",
     "version": (1, 6, 4), # 24th of August 2012 - Mexicouger
     "blender": (2, 6, 3),
     "location": "File > Export > GZDoom model (.md3)",
     "description": "Export mesh to GZDoom model with vertex animation (.md3)",
     "warning": "",
     "wiki_url": "",
-    "tracker_url": "http://www.katsbits.com/smforum/index.php?topic=275.0",
+    "tracker_url": "https://forum.zdoom.org/viewtopic.php?f=232&t=35790",
     "category": "Import-Export"}
 
 import bpy, struct, math, os, time
