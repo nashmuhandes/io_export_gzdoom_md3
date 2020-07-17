@@ -174,7 +174,7 @@ class md3Surface:
     flags = 0
     numFrames = 0
     # numShaders = 0
-    # numVerts = 0
+    numVerts = 0
     # numTriangles = 0
     ofsTriangles = 0
     ofsShaders = 0
@@ -194,7 +194,7 @@ class md3Surface:
         self.flags = 0
         self.numFrames = 0
         # self.numShaders = 0
-        # self.numVerts = 0
+        self.numVerts = 0
         # self.numTriangles = 0
         self.ofsTriangles = 0
         self.ofsShaders = 0
@@ -231,7 +231,7 @@ class md3Surface:
         tmpData[2] = self.flags
         tmpData[3] = self.numFrames
         tmpData[4] = 1 # len(self.shaders) # self.numShaders
-        tmpData[5] = len(self.verts) # self.numVerts
+        tmpData[5] = self.numVerts
         tmpData[6] = len(self.triangles) # self.numTriangles
         tmpData[7] = self.ofsTriangles
         tmpData[8] = self.ofsShaders
@@ -603,7 +603,7 @@ def save_mesh(md3, bmesh, fix_transform):
             # Fill in vertex indices, normals, texture coordinates, and triangle
             # vertex indices for each surface
             for surface_info in surface_infos:
-                face_vertices = OrderedDict()
+                face_vertices = {}
                 nsurface = surface_info.surface
                 nsurface.shader.name = surface_info.material
                 for face in surface_info.faces:
@@ -626,12 +626,15 @@ def save_mesh(md3, bmesh, fix_transform):
                             nvert.xyz = vertex_pos
                             nvert.normal = vertex_normal
                             nsurface.verts.append(nvert)
+                            # Verts contains the vertex positions and normals
+                            # for ALL frames, not just the first.
+                            nsurface.numVerts += 1
                             nuv = md3TexCoord()
                             nuv.u = vertex_uv[0]
                             nuv.v = vertex_uv[1]
                             nsurface.uv.append(nuv)
+                            surface_info.vertices.append(face_vertex)
                         ntri.indexes[face_vertex_index] = face_vertices[vertex_id]
-                        surface_info.vertices.append(face_vertex)
                     nsurface.triangles.append(ntri)
             first_frame_saved = True
 
