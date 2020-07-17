@@ -442,9 +442,9 @@ def print_md3(log,md3,dumpall):
     message(log,"Version: " + str(md3.version))
     message(log,"Name: " + md3.name)
     message(log,"Flags: " + str(md3.flags))
-    message(log,"Number of Frames: " + str(md3.numFrames))
-    message(log,"Number of Tags: " + str(md3.numTags))
-    message(log,"Number of Surfaces: " + str(md3.numSurfaces))
+    message(log,"Number of Frames: " + str(len(md3.frames)))
+    message(log,"Number of Tags: " + str(len(md3.tags)))
+    message(log,"Number of Surfaces: " + str(len(md3.surfaces)))
     message(log,"Number of Skins: " + str(md3.numSkins))
     message(log,"Offset Frames: " + str(md3.ofsFrames))
     message(log,"Offset Tags: " + str(md3.ofsTags))
@@ -476,7 +476,7 @@ def print_md3(log,md3,dumpall):
             message(log," # of Frames: " + str(s.numFrames))
             # message(log," # of Shaders: " + str(s.numShaders))
             message(log," # of Verts: " + str(s.numVerts))
-            message(log," # of Triangles: " + str(s.numTriangles))
+            message(log," # of Triangles: " + str(len(s.triangles)))
             message(log," Offset Triangles: " + str(s.ofsTriangles))
             message(log," Offset UVs: " + str(s.ofsUV))
             message(log," Offset Verts: " + str(s.ofsVerts))
@@ -503,21 +503,21 @@ def print_md3(log,md3,dumpall):
     tri_count = 0
     for surface in md3.surfaces:
         shader_count += 1 # surface.numShaders
-        tri_count += surface.numTriangles
+        tri_count += len(surface.triangles)
         vert_count += surface.numVerts
         #if surface.numShaders >= MD3_MAX_SHADERS:
             #message(log,"!Warning: Shader limit (" + str(surface.numShaders) + "/" + str(MD3_MAX_SHADERS) + ") reached for surface " + surface.name)
         if surface.numVerts >= MD3_MAX_VERTICES:
             message(log,"!Warning: Vertex limit (" + str(surface.numVerts) + "/" + str(MD3_MAX_VERTICES) + ") reached for surface " + surface.name)
-        if surface.numTriangles >= MD3_MAX_TRIANGLES:
-            message(log,"!Warning: Triangle limit (" + str(surface.numTriangles) + "/" + str(MD3_MAX_TRIANGLES) + ") reached for surface " + surface.name)
+        if len(surface.triangles) >= MD3_MAX_TRIANGLES:
+            message(log,"!Warning: Triangle limit (" + str(len(surface.triangles)) + "/" + str(MD3_MAX_TRIANGLES) + ") reached for surface " + surface.name)
 
-    if md3.numTags >= MD3_MAX_TAGS:
-        message(log,"!Warning: Tag limit (" + str(md3.numTags) + "/" + str(MD3_MAX_TAGS) + ") reached for md3!")
-    if md3.numSurfaces >= MD3_MAX_SURFACES:
-        message(log,"!Warning: Surface limit (" + str(md3.numSurfaces) + "/" + str(MD3_MAX_SURFACES) + ") reached for md3!")
-    if md3.numFrames >= MD3_MAX_FRAMES:
-        message(log,"!Warning: Frame limit (" + str(md3.numFrames) + "/" + str(MD3_MAX_FRAMES) + ") reached for md3!")
+    if len(md3.tags) >= MD3_MAX_TAGS:
+        message(log,"!Warning: Tag limit (" + str(len(md3.tags)) + "/" + str(MD3_MAX_TAGS) + ") reached for md3!")
+    if len(md3.surfaces) >= MD3_MAX_SURFACES:
+        message(log,"!Warning: Surface limit (" + str(len(md3.surfaces)) + "/" + str(MD3_MAX_SURFACES) + ") reached for md3!")
+    if len(md3.frames) >= MD3_MAX_FRAMES:
+        message(log,"!Warning: Frame limit (" + str(len(md3.frames)) + "/" + str(MD3_MAX_FRAMES) + ") reached for md3!")
 
     message(log,"Total Shaders: " + str(shader_count))
     message(log,"Total Triangles: " + str(tri_count))
@@ -605,6 +605,7 @@ def save_mesh(md3, bmesh, fix_transform):
             for surface_info in surface_infos:
                 face_vertices = {}
                 nsurface = surface_info.surface
+                nsurface.numFrames = end_frame - start_frame
                 nsurface.shader.name = surface_info.material
                 for face in surface_info.faces:
                     # Should not have more than 3 sides/vertices, since mesh
