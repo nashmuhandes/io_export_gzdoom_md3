@@ -201,7 +201,7 @@ class md3Surface:
         self.ofsUV = 0
         self.ofsVerts = 0
         self.ofsEnd
-        self.shader = ""
+        self.shader = md3Shader()
         self.triangles = []
         self.uv = []
         self.verts = []
@@ -212,8 +212,8 @@ class md3Surface:
         for t in self.triangles:
             sz += t.GetSize()
         self.ofsShaders = sz
-        for s in self.shaders:
-            sz += s.GetSize()
+        # for s in self.shaders:
+        sz += self.shader.GetSize()
         self.ofsUV = sz
         for u in self.uv:
             sz += u.GetSize()
@@ -245,9 +245,8 @@ class md3Surface:
         for t in self.triangles:
             t.Save(file)
 
-        # save the shader coordinates
-        for s in self.shaders:
-            s.Save(file)
+        # save the shaders
+        self.shader.Save(file)
 
         # save the uv info
         for u in self.uv:
@@ -475,17 +474,18 @@ def print_md3(log,md3,dumpall):
             message(log," Name: " + s.name)
             message(log," Flags: " + str(s.flags))
             message(log," # of Frames: " + str(s.numFrames))
-            message(log," # of Shaders: " + str(s.numShaders))
+            # message(log," # of Shaders: " + str(s.numShaders))
             message(log," # of Verts: " + str(s.numVerts))
             message(log," # of Triangles: " + str(s.numTriangles))
             message(log," Offset Triangles: " + str(s.ofsTriangles))
             message(log," Offset UVs: " + str(s.ofsUV))
             message(log," Offset Verts: " + str(s.ofsVerts))
             message(log," Offset End: " + str(s.ofsEnd))
-            message(log," Shaders:")
-            for shader in s.shaders:
-                message(log,"  Name: " + shader.name)
-                message(log,"  Index: " + str(shader.index))
+            #message(log," Shaders:")
+            #for shader in s.shaders:
+                #message(log,"  Name: " + shader.name)
+                #message(log,"  Index: " + str(shader.index))
+            message(log," Shader name: " + s.shader.name)
             message(log," Triangles:")
             for tri in s.triangles:
                 message(log,"  Indexes: " + str(tri.indexes[0]) + " " + str(tri.indexes[1]) + " " + str(tri.indexes[2]))
@@ -502,11 +502,11 @@ def print_md3(log,md3,dumpall):
     vert_count = 0
     tri_count = 0
     for surface in md3.surfaces:
-        shader_count += surface.numShaders
+        shader_count += 1 # surface.numShaders
         tri_count += surface.numTriangles
         vert_count += surface.numVerts
-        if surface.numShaders >= MD3_MAX_SHADERS:
-            message(log,"!Warning: Shader limit (" + str(surface.numShaders) + "/" + str(MD3_MAX_SHADERS) + ") reached for surface " + surface.name)
+        #if surface.numShaders >= MD3_MAX_SHADERS:
+            #message(log,"!Warning: Shader limit (" + str(surface.numShaders) + "/" + str(MD3_MAX_SHADERS) + ") reached for surface " + surface.name)
         if surface.numVerts >= MD3_MAX_VERTICES:
             message(log,"!Warning: Vertex limit (" + str(surface.numVerts) + "/" + str(MD3_MAX_VERTICES) + ") reached for surface " + surface.name)
         if surface.numTriangles >= MD3_MAX_TRIANGLES:
@@ -605,7 +605,7 @@ def save_mesh(md3, bmesh, fix_transform):
             for surface_info in surface_infos:
                 face_vertices = OrderedDict()
                 nsurface = surface_info.surface
-                nsurface.shader = surface_info.material
+                nsurface.shader.name = surface_info.material
                 for face in surface_info.faces:
                     # Should not have more than 3 sides/vertices, since mesh
                     # was triangulated beforehand
