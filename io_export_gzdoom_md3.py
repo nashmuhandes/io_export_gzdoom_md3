@@ -619,18 +619,18 @@ def save_mesh(md3, bmesh, fix_transform):
                             vertex_normal = tuple(vertex.normal)
                         vertex_uv = tuple(obj_mesh.tessface_uv_textures.active
                                  .data[face.index].uv[face_vertex_index])
-                        vertex_id = (fv_pos, fv_normal, fv_uv)
+                        vertex_id = (vertex_pos, vertex_normal, vertex_uv)
                         if vertex_id not in face_vertices:
-                            face_vertices[fv_id] = len(face_vertices)
+                            face_vertices[vertex_id] = len(face_vertices)
                             nvert = md3Vert()
-                            nvert.xyz = fv_pos
-                            nvert.normal = fv_normal
+                            nvert.xyz = vertex_pos
+                            nvert.normal = vertex_normal
                             nsurface.verts.append(nvert)
                             nuv = md3TexCoord()
-                            nuv.u = fv_uv[0]
-                            nuv.v = fv_uv[1]
+                            nuv.u = vertex_uv[0]
+                            nuv.v = vertex_uv[1]
                             nsurface.uv.append(nuv)
-                        ntri.indexes[face_vertex_index] = face_vertices[fv_id]
+                        ntri.indexes[face_vertex_index] = face_vertices[vertex_id]
                         surface_info.vertices.append(face_vertex)
                     nsurface.triangles.append(ntri)
             first_frame_saved = True
