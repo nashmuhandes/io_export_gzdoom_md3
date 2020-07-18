@@ -666,24 +666,32 @@ def save_mesh(md3, bmesh, fix_transform):
                         vertex_uv = tuple(
                             obj_mesh.tessface_uv_textures.active
                             .data[face.index].uv[face_vertex_index])
-                        # Get vertex position, normal, and UV as binary
-                        vertex_struct = (md3Vert.binaryFormat +
-                                         md3TexCoord.binaryFormat[1:])
-                        vertex_id = pack(vertex_struct,
-                            *vertex_pos, vertex_normal, *vertex_uv)
+                        # Get vertex position, normal, and UV as binary data
+                        # Adds less vertices to the MD3 file
+                        vertex_id = (
+                            pack(md3Vert.binaryFormat,
+                                 *vertex_pos, vertex_normal)
+                          + pack(md3TexCoord.binaryFormat,
+                                 *vertex_uv)
+                        )
                         if vertex_id not in face_vertices:
+                            # A new vertex is being added
                             face_vertices[vertex_id] = len(face_vertices)
+                            # Add the vertex position and normal
                             nvert = md3Vert()
                             nvert.xyz = vertex_pos
-                            nvert.normal = vertex_normal
                             nsurface.verts.append(nvert)
+                            nvert.normal = vertex_normal
                             # Verts contains the vertex positions and normals
                             # for ALL frames, not just the first.
                             nsurface.numVerts += 1
+                            # Add texture coordinates for this vertex
                             nuv = md3TexCoord()
                             nuv.u = vertex_uv[0]
                             nuv.v = vertex_uv[1]
                             nsurface.uv.append(nuv)
+                            # Add vertex reference info, so that the vertices
+                            # for animation frames can be added later
                             surface_info.vertices.append(
                                 (face_vertex, normal_obj))
                         ntri.indexes[face_vertex_index] = (
