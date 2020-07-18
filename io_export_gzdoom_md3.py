@@ -546,8 +546,12 @@ def save_md3(settings):
         log = open(newlogpath,"a")
     elif settings.logtype == "overwrite":
         log = open(newlogpath,"w")
+    elif settings.logtype == "blender":
+        logname = os.path.basename(newlogpath)
+        log = bpy.data.texts.get(logname, bpy.data.texts.new(logname))
+        log.clear()
     else:
-        log = 0
+        log = None
     message(log, "###################### BEGIN ######################")
     md3 = md3Object()
     md3.ident = MD3_IDENT
@@ -557,6 +561,7 @@ def save_md3(settings):
         message(log, "Select an object to export!")
     for obj in bpy.context.selected_objects:
         save_object(md3, settings, obj)
+    md3.GetSize()
     print_md3(log, md3, dumpall)
     endtime = time.clock() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
@@ -718,9 +723,12 @@ class ExportMD3(bpy.types.Operator):
     bl_idname = "export.md3"
     bl_label = 'Export MD3'
 
-    logenum = [("console","Console","log to console"),
-                         ("append","Append","append to log file"),
-                         ("overwrite","Overwrite","overwrite log file")]
+    logenum = [
+        ("console","Console","log to console"),
+        ("append","Append","append to log file"),
+        ("overwrite","Overwrite","overwrite log file"),
+        ("blender","Blender internal text","Write log to Blender text data block")
+    ]
 
     filepath = StringProperty(subtype = 'FILE_PATH',name="File Path", description="Filepath for exporting", maxlen= 1024, default="")
     md3name = StringProperty(name="MD3 Name", description="MD3 header name / skin path (64 bytes)",maxlen=64,default="")
