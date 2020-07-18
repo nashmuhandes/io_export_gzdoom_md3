@@ -593,6 +593,8 @@ def save_mesh(md3, bmesh, fix_transform):
     for frame in range(start_frame, end_frame):
         bpy.context.scene.frame_set(frame)
         obj_mesh = bmesh.to_mesh(bpy.context.scene, True, 'PREVIEW')
+        if len(obj_mesh.materials) == 0:
+            raise TypeError("{} must have at least one material!".format(bmesh.name))
         mesh_triangulate(obj_mesh)
         obj_mesh.transform(fix_transform)
         obj_mesh.calc_tessface()
@@ -656,8 +658,9 @@ def save_mesh(md3, bmesh, fix_transform):
                         if face.use_smooth:
                             normal_obj = vertex
                         vertex_normal = md3Vert.Encode(normal_obj.normal)
-                        vertex_uv = tuple(obj_mesh.tessface_uv_textures.active
-                                 .data[face.index].uv[face_vertex_index])
+                        vertex_uv = tuple(
+                            obj_mesh.tessface_uv_textures.active
+                            .data[face.index].uv[face_vertex_index])
                         # Get vertex position, normal, and UV as binary
                         vertex_struct = (md3Vert.binaryFormat +
                                          md3TexCoord.binaryFormat[1:])
@@ -678,9 +681,6 @@ def save_mesh(md3, bmesh, fix_transform):
                             nsurface.uv.append(nuv)
                             surface_info.vertices.append(
                                 (face_vertex, normal_obj))
-                            print("New vertex {!r}".format(vertex_id))
-                        else:
-                            print("Existing vertex {!r}".format(vertex_id))
                         ntri.indexes[face_vertex_index] = (
                             face_vertices[vertex_id])
                     nsurface.triangles.append(ntri)
