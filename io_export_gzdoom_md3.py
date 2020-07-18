@@ -104,9 +104,9 @@ class md3Vert:
 
     def Save(self, file):
         tmpData = [0] * 4
-        tmpData[0] = int(self.xyz[0] * MD3_XYZ_SCALE)
-        tmpData[1] = int(self.xyz[1] * MD3_XYZ_SCALE)
-        tmpData[2] = int(self.xyz[2] * MD3_XYZ_SCALE)
+        tmpData[0] = self.xyz[0]
+        tmpData[1] = self.xyz[1]
+        tmpData[2] = self.xyz[2]
         tmpData[3] = self.normal
         data = struct.pack(self.binaryFormat, tmpData[0], tmpData[1], tmpData[2], tmpData[3])
         file.write(data)
