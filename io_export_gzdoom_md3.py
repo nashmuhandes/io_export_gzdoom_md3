@@ -347,8 +347,8 @@ class md3Object:
     binaryFormat="<4si%ds9i" % MAX_QPATH  # little-endian (<), 17 integers (17i)
 
     def __init__(self):
-        self.ident = 0
-        self.version = 0
+        self.ident = MD3_IDENT
+        self.version = MD3_VERSION
         self.name = ""
         self.flags = 0
         # self.numFrames = 0
@@ -430,6 +430,7 @@ class md3Settings:
         self.offsety = offsety
         self.offsetz = offsetz
 
+# A class to help manage individual surfaces within a model
 class BlenderSurface:
     def __init__(self, index, material, first_face):
         self.index = index  # Surface index
@@ -440,6 +441,21 @@ class BlenderSurface:
         # Where "normal reference" is the object which has the normal to use.
         # For smooth faces, it contains a reference to the vertex, and for flat
         # faces, it contains a reference to the face.
+
+    def GetSize(self):
+        return self.surface.GetSize()
+
+# A class to help manage a model, which consists of one or more objects which
+# may be fused together into one model
+class BlenderModelManager:
+    def __init__(self):
+        self.md3 = md3Object()
+        self.material_surfaces = {}
+
+    def GetSize(self):
+        sz = self.md3.GetSize()
+        for surface in self.material_surfaces:
+            sz += surface.GetSize()
 
 def print_md3(log,md3,dumpall):
     message(log,"Header Information")
@@ -553,20 +569,19 @@ def save_md3(settings):
     else:
         log = None
     message(log, "###################### BEGIN ######################")
-    md3 = md3Object()
-    md3.ident = MD3_IDENT
-    md3.version = MD3_VERSION
-    md3.name = settings.name
+    model = BlenderModelManager()
+    model.md3.name = settings.name
     if len(bpy.context.selected_objects) == 0:
         message(log, "Select an object to export!")
     for obj in bpy.context.selected_objects:
-        save_object(md3, settings, obj)
-    md3.GetSize()
-    print_md3(log, md3, dumpall)
+        # If multiple objects are selected, they are joined if possible
+        save_object(model, settings, obj)
+    model.GetSize()
+    print_md3(log, model.md3, dumpall)
     endtime = time.clock() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
 
-def save_object(md3, settings, bobject):
+def save_object(model, settings, bobject):
     from mathutils import Euler, Vector
     from math import radians
     # Set up rotation fix transformation
@@ -576,16 +591,16 @@ def save_object(md3, settings, bobject):
     fix_transform.translation = Vector((
         settings.offsetx, settings.offsety, settings.offsetz))
     if bobject.type == 'MESH':
-        save_mesh(md3, bobject, fix_transform)
+        save_mesh(model, bobject, fix_transform)
     elif bobject.type == 'EMPTY':
-        save_tag(md3, bobject, fix_transform)
+        save_tag(model, bobject, fix_transform)
 
 # Convert a XYZ vector to an integer vector for conversion to MD3
 def convert_xyz(xyz):
     position = xyz * MD3_XYZ_SCALE
     return tuple(map(int, position))
 
-def save_mesh(md3, bmesh, fix_transform):
+def save_mesh(model, bmesh, fix_transform):
     from math import floor, log10
     from struct import pack
     # Export UVs, triangles, and shader from first frame, and then export the
@@ -618,7 +633,7 @@ def save_mesh(md3, bmesh, fix_transform):
         nframe.localOrigin = bmesh.location
         nframe.name = ("{0}{1:0" + str(frame_digits) + "d}").format(
             bmesh.name, frame)
-        md3.frames.append(nframe)
+        model.md3.frames.append(nframe)
         if not first_frame_saved:
             material_surfaces = {}
             # Find all surfaces, and export texture coordinates, triangles, and
@@ -639,7 +654,7 @@ def save_mesh(md3, bmesh, fix_transform):
                     surface_info = BlenderSurface(surface_count, mtl_name, face)
                     surface_infos.append(surface_info)
                     surface_info.surface.name = mtl_name
-                    md3.surfaces.append(surface_info.surface)
+                    model.md3.surfaces.append(surface_info.surface)
                 else:
                     # Add faces to the existing surface
                     surface_index = material_surfaces[mtl_name]
