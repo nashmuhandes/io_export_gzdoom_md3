@@ -746,8 +746,11 @@ def save_md3(settings):
         log.clear()
     else:
         log = None
+    ref_frame = settings.refframe
+    if settings.refframe == -1:
+        ref_frame = bpy.context.scene.frame_current
     message(log, "###################### BEGIN ######################")
-    model = BlenderModelManager(settings.gzdoom, settings.refframe)
+    model = BlenderModelManager(settings.gzdoom, ref_frame)
     # Set up fix transformation matrix
     model.fix_transform *= Matrix.Scale(settings.scale, 4)
     model.fix_transform *= Matrix.Translation(Vector((
@@ -830,7 +833,10 @@ class ExportMD3(bpy.types.Operator):
         name="Reference Frame",
         description="The frame to use for vertices, UVs, and triangles. May "
             "be useful in case you have an animation where the model has an "
-            "animation where it starts off closed and it 'opens up'")
+            "animation where it starts off closed and it 'opens up'. A value "
+            "of -1 uses the current frame in the current scene",
+        default=-1,
+        min=-1)
     md3forgzdoom = BoolProperty(
         name="Export for GZDoom",
         description="Export the model for GZDoom; Fixes normals pointing "
