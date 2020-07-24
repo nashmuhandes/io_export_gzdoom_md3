@@ -575,6 +575,7 @@ class BlenderModelManager:
         bsurface.surface.triangles.append(ntri)
 
     def setup_frames(self):
+        from math import floor, log10
         # Add the vertex animations for each frame. Only call this AFTER
         # all the triangle and UV data has been set up.
         self.lock_vertices = True
@@ -582,6 +583,10 @@ class BlenderModelManager:
             bpy.context.scene.frame_set(frame)
             obj_meshes = {}
             nframe = md3Frame()
+            frame_digits = floor(log10(self.end_frame - self.start_frame)) + 1
+            frame_num = frame - self.start_frame
+            nframe.name = (
+                "Frame{:0" + str(frame_digits) + "d}").format(frame_num)
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
                 obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
@@ -604,9 +609,9 @@ class BlenderModelManager:
                     if vertex.co > nframe.maxs:
                         nframe.maxs = vertex.co
                 nframe.radius = max(nframe.mins.length, nframe.maxs.length)
-                self.md3.frames.append(nframe)
                 # Add mesh to dict
                 obj_meshes[mesh_obj.name] = obj_mesh
+            self.md3.frames.append(nframe)
             for bsurface in self.material_surfaces.values():
                 for mesh_name, vertex_infos in bsurface.vertices.items():
                     obj_mesh = obj_meshes[mesh_name]
@@ -742,7 +747,7 @@ def save_md3(settings):
         log = open(newlogpath,"w")
     elif settings.logtype == "blender":
         logname = os.path.basename(newlogpath)
-        log = bpy.data.texts.get(logname, bpy.data.texts.new(logname))
+        log = bpy.data.texts.new(logname)
         log.clear()
     else:
         log = None
