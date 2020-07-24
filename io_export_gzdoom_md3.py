@@ -31,6 +31,8 @@ bl_info = {
         "category": "Import-Export"}
 
 import bpy, struct, math, os, time
+from collections import OrderedDict
+from struct import pack
 
 ##### User options: Exporter default settings
 default_logtype = 'console' ## console, overwrite, append
@@ -57,7 +59,7 @@ class md3Vert:
     binaryFormat = "<3hH"
 
     def __init__(self):
-        self.xyz = [0.0, 0.0, 0.0]
+        self.xyz = [0, 0, 0]
         self.normal = 0
 
     def GetSize(self):
@@ -78,7 +80,7 @@ class md3Vert:
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def Encode(normal):
+    def Encode(normal, gzdoom = True):
         x = normal[0]
         y = normal[1]
         z = normal[2]
@@ -90,12 +92,13 @@ class md3Vert:
         y = y/l
         z = z/l
 
-        # [Nash] commented this out to fix wrong normals for faces pointing straight-down
-        #if (x == 0.0) & (y == 0.0) :
-        #   if z > 0.0:
-        #       return 0
-        #   else:
-        #       return (128 << 8)
+        # Export for Quake 3 rather than GZDoom
+        if not gzdoom:
+            if (x == 0.0) & (y == 0.0):
+                if z > 0.0:
+                    return 0
+                else:
+                    return (128 << 8)
 
         lng = math.acos(z) * 255 / (2 * math.pi)
         lat = math.atan2(y, x) * 255 / (2 * math.pi)
@@ -413,14 +416,16 @@ def message(log,msg):
 
 class md3Settings:
     def __init__(self,
-                             savepath,
-                             name,
-                             logtype,
-                             dumpall=False,
-                             scale=1.0,
-                             offsetx=0.0,
-                             offsety=0.0,
-                             offsetz=0.0):
+                 savepath,
+                 name,
+                 logtype,
+                 dumpall=False,
+                 scale=1.0,
+                 offsetx=0.0,
+                 offsety=0.0,
+                 offsetz=0.0,
+                 refframe=0,
+                 gzdoom=True):
         self.savepath = savepath
         self.name = name
         self.logtype = logtype
@@ -429,33 +434,204 @@ class md3Settings:
         self.offsetx = offsetx
         self.offsety = offsety
         self.offsetz = offsetz
+        self.refframe = refframe
+        self.gzdoom = gzdoom
+
+
+# Convert a XYZ vector to an integer vector for conversion to MD3
+def convert_xyz(xyz):
+    from math import floor
+    def convert(number, factor):
+        return floor(number * factor)
+    factors = [MD3_XYZ_SCALE] * 3
+    position = map(convert, xyz, factors)
+    return tuple(map(int, position))
+
 
 # A class to help manage individual surfaces within a model
 class BlenderSurface:
-    def __init__(self, index, material, first_face):
+    def __init__(self, index, material):
         self.index = index  # Surface index
         self.material = material  # Blender material name -> Shader
-        self.faces = [first_face]  # Blender faces of surface
         self.surface = md3Surface()  # MD3 surface
-        self.vertices = [] # (Vertex index, normal reference)
-        # Where "normal reference" is the object which has the normal to use.
-        # For smooth faces, it contains a reference to the vertex, and for flat
-        # faces, it contains a reference to the face.
+
+        # {Mesh object: [(vertex index, normal index, normal reference), ...]}
+        # Where "Mesh object" is the NAME of the object from which the mesh was
+        # created, "vertex index" is the index of the vertex in mesh.vertices,
+        # "normal index" is the index of the normal on the normal object, and
+        # "normal reference" is a string referring to the array to use when
+        # which has the normal to use.
+        self.vertices = OrderedDict()
+
+        # Vertices (position, normal, and UV) in MD3 binary format, mapped to
+        # their indices
+        self.unique_vertices = {}
 
     def GetSize(self):
         return self.surface.GetSize()
 
+
 # A class to help manage a model, which consists of one or more objects which
 # may be fused together into one model
 class BlenderModelManager:
-    def __init__(self):
+    def __init__(self, gzdoom, ref_frame = None):
+        from mathutils import Matrix
         self.md3 = md3Object()
-        self.material_surfaces = {}
+        self.material_surfaces = OrderedDict()
+        self.mesh_objects = []
+        self.fix_transform = Matrix.Identity(4)
+        self.lock_vertices = False
+        self.start_frame = bpy.context.scene.frame_start
+        self.end_frame = bpy.context.scene.frame_end + 1
+        self.gzdoom = gzdoom
+        # Reference frame - used for initial UV and triangle data
+        if ref_frame is not None:
+            self.ref_frame = ref_frame
+        else:
+            self.ref_frame = self.start_frame
 
-    def GetSize(self):
+    def get_size(self):
         sz = self.md3.GetSize()
         for surface in self.material_surfaces:
             sz += surface.GetSize()
+
+    def save(self, filename):
+        nfile = open(filename, "wb")
+        self.md3.Save(nfile)
+        nfile.close()
+
+    @staticmethod
+    def encode_vertex(position, normal, uv, gzdoom):
+        md3_position = convert_xyz(position)
+        md3_normal = md3Vert.Encode(normal, gzdoom)
+        return (pack(md3Vert.binaryFormat, *md3_position, md3_normal)
+              + pack(md3TexCoord.binaryFormat, *uv))
+
+    def add_mesh(self, mesh_obj):
+        """
+        Add a mesh to the object. Does nothing if the animation frames have
+        been added.
+        """
+        if self.lock_vertices:
+            return
+        self.mesh_objects.append(mesh_obj)
+        bpy.context.scene.frame_set(self.ref_frame)
+        obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
+        obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
+        mesh_triangulate(obj_mesh)
+        obj_mesh.calc_tessface()
+        # See what materials the mesh references, and add new surfaces for
+        # those materials if necessary
+        for face_index, face in enumerate(obj_mesh.tessfaces):
+            face_mtl = obj_mesh.materials[face.material_index].name
+            if face_mtl not in self.material_surfaces:
+                surface_index = len(self.material_surfaces)
+                bsurface = BlenderSurface(surface_index, face_mtl)
+                self.material_surfaces[face_mtl] = bsurface
+                self.md3.surfaces.append(bsurface.surface)
+            bsurface = self.material_surfaces[face_mtl]
+            self._add_face(face_index, bsurface, obj_mesh, mesh_obj)
+
+    def _add_face(self, face_index, bsurface, obj_mesh, mesh_obj):
+        # A model has several surfaces, which have several faces. For Blender,
+        # each face has a normal, UV coordinates, and references to at least 3
+        # vertices. Each vertex also has a normal.
+        # Which normal is used depends on whether or not the face is "smooth".
+        # NOTE: tessfaces and tessface_uv_textures.active.data are parallel
+        # arrays
+        # For MD3:
+        # A face consists of references to three vertices.
+        # A vertex consists of a position, a normal, and a UV coordinate.
+        face = obj_mesh.tessfaces[face_index]
+        face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index].uv
+        ntri = md3Triangle()
+        for vertex_iter_index, vertex_index in enumerate(face.vertices):
+            vertex = obj_mesh.vertices[vertex_index]
+            vertex_position = vertex.co
+            normal_ref = "tessfaces"
+            normal_index = face_index
+            if face.use_smooth:
+                normal_ref = "vertices"
+                normal_index = vertex_index
+            normal_object = getattr(obj_mesh, normal_ref)
+            vertex_normal = normal_object[normal_index].normal
+            vertex_uv = face_uvs[vertex_iter_index]
+            vertex_id = BlenderModelManager.encode_vertex(
+                vertex_position, vertex_normal, vertex_uv, self.gzdoom)
+            if vertex_id not in bsurface.unique_vertices:
+                bsurface.surface.numVerts += 1
+                ntexcoord = md3TexCoord()
+                ntexcoord.u = vertex_uv[0]
+                ntexcoord.v = vertex_uv[1]
+                bsurface.surface.uv.append(ntexcoord)
+                md3_vertex_index = len(bsurface.unique_vertices)
+                bsurface.unique_vertices[vertex_id] = md3_vertex_index
+                bsurface.vertices.setdefault(mesh_obj.name, [])
+                bsurface.vertices[mesh_obj.name].append((
+                    vertex_index, normal_index, normal_ref))
+            else:
+                md3_vertex_index = bsurface.unique_vertices[vertex_id]
+            ntri.indexes[vertex_iter_index] = md3_vertex_index
+        bsurface.surface.triangles.append(ntri)
+
+    def setup_frames(self):
+        # Add the vertex animations for each frame. Only call this AFTER
+        # all the triangle and UV data has been set up.
+        self.lock_vertices = True
+        for frame in range(self.start_frame, self.end_frame):
+            bpy.context.scene.frame_set(frame)
+            obj_meshes = {}
+            nframe = md3Frame()
+            nframe_bounds_set = False
+            for mesh_obj in self.mesh_objects:
+                obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
+                # Set up obj_mesh
+                obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
+                mesh_triangulate(obj_mesh)
+                obj_mesh.calc_tessface()
+                # Set up frame min/max/origin/radius
+                if not nframe_bounds_set:
+                    nframe.mins = obj_mesh.vertices[0].co
+                    nframe.maxs = obj_mesh.vertices[0].co
+                    nframe.localOrigin = mesh_obj.location
+                    nframe_bounds_set = True
+                    armature = mesh_obj.find_armature()
+                    if armature:
+                        nframe.localOrigin -= armature.location
+                for vertex in obj_mesh.vertices:
+                    if vertex.co < nframe.mins:
+                        nframe.mins = vertex.co
+                    if vertex.co > nframe.maxs:
+                        nframe.maxs = vertex.co
+                nframe.radius = max(nframe.mins.length, nframe.maxs.length)
+                self.md3.frames.append(nframe)
+                # Add mesh to dict
+                obj_meshes[mesh_obj.name] = obj_mesh
+            for bsurface in self.material_surfaces.values():
+                for mesh_name, vertex_infos in bsurface.vertices.items():
+                    obj_mesh = obj_meshes[mesh_name]
+                    for vertex_info in vertex_infos:
+                        vertex_position = obj_mesh.vertices[vertex_info[0]].co
+                        normal_object = getattr(obj_mesh, vertex_info[2])
+                        vertex_normal = normal_object[vertex_info[1]].normal
+                        nvertex = md3Vert()
+                        nvertex.xyz = convert_xyz(vertex_position)
+                        nvertex.normal = md3Vert.Encode(vertex_normal)
+                        bsurface.surface.verts.append(nvertex)
+
+    def add_tag(self, bobject):
+        bpy.context.scene.frame_set(bpy.context.scene.frame_start)
+        position = bobject.location.copy()
+        position = self.fix_transform * position
+        orientation = bobject.matrix_world.to_3x3().normalize()
+        orientation = fix_transform.to_3x3() * orientation
+        ntag = md3Tag()
+        ntag.origin = position
+        ntag.axis[0:3] = orientation[0]
+        ntag.axis[3:6] = orientation[1]
+        ntag.axis[6:9] = orientation[2]
+        self.md3.tags.append(ntag)
+
 
 def print_md3(log,md3,dumpall):
     message(log,"Header Information")
@@ -555,6 +731,8 @@ def mesh_triangulate(me):
 
 # Main function
 def save_md3(settings):
+    from mathutils import Euler, Matrix, Vector
+    from math import radians
     starttime = time.clock()  # start timer
     newlogpath = os.path.splitext(settings.savepath)[0] + ".log"
     dumpall = settings.dumpall
@@ -569,175 +747,30 @@ def save_md3(settings):
     else:
         log = None
     message(log, "###################### BEGIN ######################")
-    model = BlenderModelManager()
-    model.md3.name = settings.name
-    if len(bpy.context.selected_objects) == 0:
-        message(log, "Select an object to export!")
-    for obj in bpy.context.selected_objects:
-        # If multiple objects are selected, they are joined if possible
-        save_object(model, settings, obj)
-    model.GetSize()
-    print_md3(log, model.md3, dumpall)
-    endtime = time.clock() - starttime
-    message(log, "Export took {:.3f} seconds".format(endtime))
-
-def save_object(model, settings, bobject):
-    from mathutils import Euler, Vector
-    from math import radians
-    # Set up rotation fix transformation
+    model = BlenderModelManager(settings.gzdoom, settings.refframe)
+    # Set up fix transformation matrix
+    model.fix_transform *= Matrix.Scale(settings.scale, 4)
+    model.fix_transform *= Matrix.Translation(Vector((
+        settings.offsetx, settings.offsety, settings.offsetz)))
     rotation_fix = Euler()
     rotation_fix.z = radians(90)
-    fix_transform = rotation_fix.to_matrix().to_4x4()
-    fix_transform.translation = Vector((
-        settings.offsetx, settings.offsety, settings.offsetz))
-    if bobject.type == 'MESH':
-        save_mesh(model, bobject, fix_transform)
-    elif bobject.type == 'EMPTY':
-        save_tag(model, bobject, fix_transform)
-
-# Convert a XYZ vector to an integer vector for conversion to MD3
-def convert_xyz(xyz):
-    position = xyz * MD3_XYZ_SCALE
-    return tuple(map(int, position))
-
-def save_mesh(model, bmesh, fix_transform):
-    from math import floor, log10
-    from struct import pack
-    # Export UVs, triangles, and shader from first frame, and then export the
-    # vertices for all subsequent frames
-    first_frame_saved = False
-    start_frame = bpy.context.scene.frame_start
-    end_frame = bpy.context.scene.frame_end + 1
-    frame_digits = floor(log10(end_frame - start_frame)) + 1
-    surface_infos = []
-    for frame in range(start_frame, end_frame):
-        bpy.context.scene.frame_set(frame)
-        obj_mesh = bmesh.to_mesh(bpy.context.scene, True, 'PREVIEW')
-        if len(obj_mesh.materials) == 0:
-            raise TypeError("{} must have at least one material!".format(bmesh.name))
-        mesh_triangulate(obj_mesh)
-        obj_mesh.transform(fix_transform)
-        obj_mesh.calc_tessface()
-        if not obj_mesh.tessface_uv_textures.active:
-            raise TypeError("{} must have UVs!".format(bmesh.name))
-        # Add frame information
-        nframe = md3Frame()
-        # map has to be called twice since it cannot be iterated over more than
-        # once.
-        vertex_positions = map(lambda vertex: vertex.co, obj_mesh.vertices)
-        nframe.mins = min(vertex_positions)
-        vertex_positions = map(lambda vertex: vertex.co, obj_mesh.vertices)
-        nframe.maxs = max(vertex_positions)
-        # I don't actually know what these do.
-        nframe.radius = (nframe.maxs - nframe.mins).length / 2
-        nframe.localOrigin = bmesh.location
-        nframe.name = ("{0}{1:0" + str(frame_digits) + "d}").format(
-            bmesh.name, frame)
-        model.md3.frames.append(nframe)
-        if not first_frame_saved:
-            material_surfaces = {}
-            # Find all surfaces, and export texture coordinates, triangles, and
-            # shader (material name) from those.
-            for face in obj_mesh.tessfaces:
-                mtl = obj_mesh.materials[face.material_index]
-                # Get shader name. If the material has a custom property named
-                # "md3shader", use it. Otherwise, just use the material name
-                try:
-                    mtl_name = mtl["md3shader"]
-                except:
-                    mtl_name = mtl.name
-                # Add a new surface if it hasn't already been added
-                if mtl_name not in material_surfaces:
-                    surface_count = len(material_surfaces)
-                    material_surfaces[mtl_name] = surface_count
-                    # Surface index, material name, and surface faces
-                    surface_info = BlenderSurface(surface_count, mtl_name, face)
-                    surface_infos.append(surface_info)
-                    surface_info.surface.name = mtl_name
-                    model.md3.surfaces.append(surface_info.surface)
-                else:
-                    # Add faces to the existing surface
-                    surface_index = material_surfaces[mtl_name]
-                    surface_infos[surface_index].faces.append(face)
-            # Fill in vertex indices, normals, texture coordinates, and triangle
-            # vertex indices for each surface
-            for surface_info in surface_infos:
-                face_vertices = {}
-                nsurface = surface_info.surface
-                nsurface.numFrames = end_frame - start_frame
-                nsurface.shader.name = surface_info.material
-                for face in surface_info.faces:
-                    # Should not have more than 3 sides/vertices, since mesh
-                    # was triangulated beforehand
-                    ntri = md3Triangle()
-                    for face_vertex_index, face_vertex in enumerate(face.vertices):
-                        # A new vertex for each position, normal, and texture coordinate
-                        vertex = obj_mesh.vertices[face_vertex]
-                        vertex_pos = convert_xyz(vertex.co)
-                        normal_obj = face
-                        if face.use_smooth:
-                            normal_obj = vertex
-                        vertex_normal = md3Vert.Encode(normal_obj.normal)
-                        vertex_uv = tuple(
-                            obj_mesh.tessface_uv_textures.active
-                            .data[face.index].uv[face_vertex_index])
-                        # Get vertex position, normal, and UV as binary data
-                        # Adds less vertices to the MD3 file
-                        vertex_id = (
-                            pack(md3Vert.binaryFormat,
-                                 *vertex_pos, vertex_normal)
-                          + pack(md3TexCoord.binaryFormat,
-                                 *vertex_uv)
-                        )
-                        if vertex_id not in face_vertices:
-                            # A new vertex is being added
-                            face_vertices[vertex_id] = len(face_vertices)
-                            # Add the vertex position and normal
-                            nvert = md3Vert()
-                            nvert.xyz = vertex_pos
-                            nsurface.verts.append(nvert)
-                            nvert.normal = vertex_normal
-                            # Verts contains the vertex positions and normals
-                            # for ALL frames, not just the first.
-                            nsurface.numVerts += 1
-                            # Add texture coordinates for this vertex
-                            nuv = md3TexCoord()
-                            nuv.u = vertex_uv[0]
-                            nuv.v = vertex_uv[1]
-                            nsurface.uv.append(nuv)
-                            # Add vertex reference info, so that the vertices
-                            # for animation frames can be added later
-                            surface_info.vertices.append(
-                                (face_vertex, normal_obj))
-                        ntri.indexes[face_vertex_index] = (
-                            face_vertices[vertex_id])
-                    nsurface.triangles.append(ntri)
-            first_frame_saved = True
-            continue
-        # Add the vertices for each frame
-        for surface_info in surface_infos:
-            nsurface = surface_info.surface
-            for vertex in surface_info.vertices:
-                vertex_index, normal_obj = vertex
-                vertex_normal = normal_obj.normal
-                vertex_pos = convert_xyz(obj_mesh.vertices[vertex_index].co)
-                nvert = md3Vert()
-                nvert.xyz = vertex_pos
-                nvert.normal = md3Vert.Encode(vertex_normal)
-                nsurface.verts.append(nvert)
-
-def save_tag(md3, bempty, fix_transform):
-    bpy.context.scene.frame_set(bpy.context.scene.frame_start)
-    position = bempty.location.copy()
-    position = fix_transform * position
-    orientation = bempty.matrix_world.to_3x3().normalize()
-    orientation = fix_transform.to_3x3() * orientation
-    ntag = md3Tag()
-    ntag.origin = position
-    ntag.axis[0:3] = orientation[0]
-    ntag.axis[3:6] = orientation[1]
-    ntag.axis[6:9] = orientation[2]
-    md3.tags.append(ntag)
+    model.fix_transform *= rotation_fix.to_matrix().to_4x4()
+    model.md3.name = settings.name
+    # Add objects to model manager
+    if len(bpy.context.selected_objects) == 0:
+        message(log, "Select an object to export!")
+    else:
+        # If multiple objects are selected, they are joined together
+        for bobject in bpy.context.selected_objects:
+            if bobject.type == 'MESH':
+                model.add_mesh(bobject)
+            elif bobject.type == 'EMPTY':
+                model.add_tag(bobject)
+    model.setup_frames()
+    print_md3(log, model.md3, dumpall)
+    model.save(settings.savepath)
+    endtime = time.clock() - starttime
+    message(log, "Export took {:.3f} seconds".format(endtime))
 
 from bpy.props import *
 
@@ -753,24 +786,68 @@ class ExportMD3(bpy.types.Operator):
         ("blender","Blender internal text","Write log to Blender text data block")
     ]
 
-    filepath = StringProperty(subtype = 'FILE_PATH',name="File Path", description="Filepath for exporting", maxlen= 1024, default="")
-    md3name = StringProperty(name="MD3 Name", description="MD3 header name / skin path (64 bytes)",maxlen=64,default="")
-    md3logtype = EnumProperty(name="Save log", items=logenum, description="File logging options",default =str(default_logtype))
-    md3dumpall = BoolProperty(name="Dump all", description="Dump all data for md3 to log",default=default_dumpall)
-    md3scale = FloatProperty(name="Scale", description="Scale all objects from world origin (0,0,0)",default=1.0,precision=5)
-    md3offsetx = FloatProperty(name="Offset X", description="Transition scene along x axis",default=0.0,precision=5)
-    md3offsety = FloatProperty(name="Offset Y", description="Transition scene along y axis",default=0.0,precision=5)
-    md3offsetz = FloatProperty(name="Offset Z", description="Transition scene along z axis",default=0.0,precision=5)
+    filepath = StringProperty(
+        subtype='FILE_PATH',
+        name="File Path",
+        description="Filepath for exporting",
+        maxlen=1024,
+        default="")
+    md3name = StringProperty(
+        name="MD3 Name",
+        description="MD3 header name / skin path (64 bytes)",
+        maxlen=64,
+        default="")
+    md3logtype = EnumProperty(
+        name="Save log",
+        items=logenum,
+        description="File logging options",
+        default=str(default_logtype))
+    md3dumpall = BoolProperty(
+        name="Dump all",
+        description="Dump all data for md3 to log",
+        default=default_dumpall)
+    md3scale = FloatProperty(
+        name="Scale",
+        description="Scale all objects from world origin (0,0,0)",
+        default=1.0,
+        precision=5)
+    md3offsetx = FloatProperty(
+        name="Offset X",
+        description="Transition scene along x axis",
+        default=0.0,
+        precision=5)
+    md3offsety = FloatProperty(
+        name="Offset Y",
+        description="Transition scene along y axis",
+        default=0.0,
+        precision=5)
+    md3offsetz = FloatProperty(
+        name="Offset Z",
+        description="Transition scene along z axis",
+        default=0.0,
+        precision=5)
+    md3refframe = IntProperty(
+        name="Reference Frame",
+        description="The frame to use for vertices, UVs, and triangles. May "
+            "be useful in case you have an animation where the model has an "
+            "animation where it starts off closed and it 'opens up'")
+    md3forgzdoom = BoolProperty(
+        name="Export for GZDoom",
+        description="Export the model for GZDoom; Fixes normals pointing "
+            "straight up or straight down for when GZDoom displays the model",
+        default=True)
 
     def execute(self, context):
-        settings = md3Settings(savepath = self.properties.filepath,
-                                                    name = self.properties.md3name,
-                                                    logtype = self.properties.md3logtype,
-                                                    dumpall = self.properties.md3dumpall,
-                                                    scale = self.properties.md3scale,
-                                                    offsetx = self.properties.md3offsetx,
-                                                    offsety = self.properties.md3offsety,
-                                                    offsetz = self.properties.md3offsetz)
+        settings = md3Settings(savepath=self.properties.filepath,
+                               name=self.properties.md3name,
+                               logtype=self.properties.md3logtype,
+                               dumpall=self.properties.md3dumpall,
+                               scale=self.properties.md3scale,
+                               offsetx=self.properties.md3offsetx,
+                               offsety=self.properties.md3offsety,
+                               offsetz=self.properties.md3offsetz,
+                               refframe=self.properties.md3refframe,
+                               gzdoom=self.properties.md3forgzdoom)
         save_md3(settings)
         return {'FINISHED'}
 
