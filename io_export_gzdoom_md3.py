@@ -67,7 +67,7 @@ class md3Vert:
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def Decode(self, latlng):
+    def Decode(latlng):
         lat = (latlng >> 8) & 0xFF;
         lng = (latlng) & 0xFF;
         lat *= math.pi / 128;
