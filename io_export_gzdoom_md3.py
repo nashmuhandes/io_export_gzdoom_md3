@@ -30,7 +30,8 @@ bl_info = {
         "tracker_url": "https://forum.zdoom.org/viewtopic.php?f=232&t=35790",
         "category": "Import-Export"}
 
-import bpy, struct, math, os, time
+import bpy, struct, math, time
+from os.path import basename, splitext
 from collections import OrderedDict
 from struct import pack
 
@@ -472,7 +473,7 @@ class BlenderSurface:
         # "normal index" is the index of the normal on the normal object, and
         # "normal reference" is a string referring to the array to use when
         # which has the normal to use.
-        self.vertices = {}
+        self.vertex_refs = {}
 
         # Vertices (position, normal, and UV) in MD3 binary format, mapped to
         # their indices
@@ -536,13 +537,14 @@ class BlenderModelManager:
                 self.material_surfaces[face_mtl] = bsurface
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
-            self._add_face(face_index, bsurface, obj_mesh, mesh_obj)
+            self._add_face(face_index, bsurface, obj_mesh, mesh_obj.name)
+        bpy.data.meshes.remove(obj_mesh)
 
-    def _add_face(self, face_index, bsurface, obj_mesh, mesh_obj):
+    def _add_face(self, face_index, bsurface, obj_mesh, obj_name):
         from collections import namedtuple
         VertexReference = namedtuple(
             "VertexReference",
-            "position_index normal_index normal_ref"
+            "vertex_index normal_index normal_ref"
         )
         # A model has several surfaces, which have several faces. For Blender,
         # each face has a normal, UV coordinates, and references to at least 3
@@ -557,6 +559,8 @@ class BlenderModelManager:
         face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index].uv
         ntri = md3Triangle()
         for vertex_iter_index, vertex_index in enumerate(face.vertices):
+            if vertex_iter_index > 2:
+                print("WARNING! Face %d has more than 3 vertices!" % face_index)
             vertex = obj_mesh.vertices[vertex_index]
             vertex_position = vertex.co
             normal_ref = "tessfaces"
@@ -577,8 +581,8 @@ class BlenderModelManager:
                 bsurface.surface.uv.append(ntexcoord)
                 md3_vertex_index = len(bsurface.unique_vertices)
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
-                bsurface.vertices.setdefault(mesh_obj.name, [])
-                bsurface.vertices[mesh_obj.name].append(VertexReference(
+                vert_refs = bsurface.vertex_refs.setdefault(obj_name, [])
+                vert_refs.append(VertexReference(
                     vertex_index, normal_index, normal_ref))
             else:
                 md3_vertex_index = bsurface.unique_vertices[vertex_id]
@@ -632,16 +636,18 @@ class BlenderModelManager:
                 obj_meshes[mesh_obj.name] = obj_mesh
             self.md3.frames.append(nframe)
             for bsurface in self.material_surfaces.values():
-                for mesh_name, vertex_infos in bsurface.vertices.items():
+                for mesh_name, vertex_infos in bsurface.vertex_refs.items():
                     obj_mesh = obj_meshes[mesh_name]
                     for vertex_info in vertex_infos:
-                        vertex_position = obj_mesh.vertices[vertex_info.position_index].co
+                        vertex_position = obj_mesh.vertices[vertex_info.vertex_index].co
                         normal_object = getattr(obj_mesh, vertex_info.normal_ref)
                         vertex_normal = normal_object[vertex_info.normal_index].normal
                         nvertex = md3Vert()
                         nvertex.xyz = convert_xyz(vertex_position)
-                        nvertex.normal = md3Vert.Encode(vertex_normal)
+                        nvertex.normal = md3Vert.Encode(vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
+            for obj_mesh in obj_meshes.values():
+                bpy.data.meshes.remove(obj_mesh)
 
     def add_tag(self, bobject):
         bpy.context.scene.frame_set(bpy.context.scene.frame_start)
@@ -758,15 +764,17 @@ def save_md3(settings):
     from mathutils import Euler, Matrix, Vector
     from math import radians
     starttime = time.clock()  # start timer
-    newlogpath = os.path.splitext(settings.savepath)[0] + ".log"
+    newlogpath = splitext(settings.savepath)[0] + ".log"
+    logbasename = basename(newlogpath)
+    if settings.name == "":
+        settings.name = logbasename
     dumpall = settings.dumpall
     if settings.logtype == "append":
         log = open(newlogpath,"a")
     elif settings.logtype == "overwrite":
         log = open(newlogpath,"w")
     elif settings.logtype == "blender":
-        logname = os.path.basename(newlogpath)
-        log = bpy.data.texts.new(logname)
+        log = bpy.data.texts.new(logbasename)
         log.clear()
     else:
         log = None
