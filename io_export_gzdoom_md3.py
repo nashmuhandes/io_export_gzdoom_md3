@@ -454,6 +454,10 @@ class BlenderSurface:
         self.index = index  # Surface index
         self.material = material  # Blender material name -> Shader
         self.surface = md3Surface()  # MD3 surface
+        # Set names for surface and its material, both of which are named after
+        # the material it uses
+        self.surface.name = material
+        self.surface.shader.name = material
 
         # {Mesh object: [(vertex index, normal index, normal reference), ...]}
         # Where "Mesh object" is the NAME of the object from which the mesh was
@@ -489,11 +493,6 @@ class BlenderModelManager:
             self.ref_frame = ref_frame
         else:
             self.ref_frame = self.start_frame
-
-    def get_size(self):
-        sz = self.md3.GetSize()
-        for surface in self.material_surfaces:
-            sz += surface.GetSize()
 
     def save(self, filename):
         nfile = open(filename, "wb")
@@ -775,6 +774,7 @@ def save_md3(settings):
             elif bobject.type == 'EMPTY':
                 model.add_tag(bobject)
     model.setup_frames()
+    model.md3.GetSize()
     print_md3(log, model.md3, dumpall)
     model.save(settings.savepath)
     endtime = time.clock() - starttime
