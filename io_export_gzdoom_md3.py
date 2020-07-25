@@ -616,8 +616,8 @@ class BlenderModelManager:
                 obj_mesh.calc_tessface()
                 # Set up frame bounds/origin/radius
                 if not nframe_bounds_set:
-                    nframe.mins = obj_mesh.vertices[0].co
-                    nframe.maxs = obj_mesh.vertices[0].co
+                    nframe.mins = obj_mesh.vertices[0].co.copy()
+                    nframe.maxs = obj_mesh.vertices[0].co.copy()
                     nframe.localOrigin = mesh_obj.location
                     nframe_bounds_set = True
                     armature = mesh_obj.find_armature()
