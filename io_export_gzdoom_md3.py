@@ -458,8 +458,7 @@ def convert_xyz(xyz):
 
 # A class to help manage individual surfaces within a model
 class BlenderSurface:
-    def __init__(self, index, material):
-        self.index = index  # Surface index
+    def __init__(self, material):
         self.material = material  # Blender material name -> Shader
         self.surface = md3Surface()  # MD3 surface
         # Set names for surface and its material, both of which are named after
@@ -532,8 +531,7 @@ class BlenderModelManager:
         for face_index, face in enumerate(obj_mesh.tessfaces):
             face_mtl = obj_mesh.materials[face.material_index].name
             if face_mtl not in self.material_surfaces:
-                surface_index = len(self.material_surfaces)
-                bsurface = BlenderSurface(surface_index, face_mtl)
+                bsurface = BlenderSurface(face_mtl)
                 self.material_surfaces[face_mtl] = bsurface
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
