@@ -608,10 +608,18 @@ class BlenderModelManager:
                     if armature:
                         nframe.localOrigin -= armature.location
                 for vertex in obj_mesh.vertices:
-                    if vertex.co < nframe.mins:
-                        nframe.mins = vertex.co
-                    if vertex.co > nframe.maxs:
-                        nframe.maxs = vertex.co
+                    if vertex.co[0] < nframe.mins[0]:
+                        nframe.mins[0] = vertex.co[0]
+                    if vertex.co[1] < nframe.mins[1]:
+                        nframe.mins[1] = vertex.co[1]
+                    if vertex.co[2] < nframe.mins[2]:
+                        nframe.mins[2] = vertex.co[2]
+                    if vertex.co[0] > nframe.maxs[0]:
+                        nframe.maxs[0] = vertex.co[0]
+                    if vertex.co[1] > nframe.maxs[1]:
+                        nframe.maxs[1] = vertex.co[1]
+                    if vertex.co[2] > nframe.maxs[2]:
+                        nframe.maxs[2] = vertex.co[2]
                 nframe.radius = max(nframe.mins.length, nframe.maxs.length)
                 # Add mesh to dict
                 obj_meshes[mesh_obj.name] = obj_mesh
