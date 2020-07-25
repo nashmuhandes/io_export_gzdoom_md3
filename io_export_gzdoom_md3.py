@@ -217,18 +217,22 @@ class md3Surface:
         if self.size > 0:
             return self.size
         sz = struct.calcsize(self.binaryFormat)
+        # Triangles
         self.ofsTriangles = sz
         for t in self.triangles:
             sz += t.GetSize()
+        # Shader
         self.ofsShaders = sz
-        # for s in self.shaders:
         sz += self.shader.GetSize()
+        # UVs (St)
         self.ofsUV = sz
         for u in self.uv:
             sz += u.GetSize()
+        # Vertices for each frame
         self.ofsVerts = sz
         for v in self.verts:
             sz += v.GetSize()
+        # End
         self.ofsEnd = sz
         self.size = sz
         return self.ofsEnd
@@ -495,6 +499,7 @@ class BlenderModelManager:
         self.lock_vertices = False
         self.start_frame = bpy.context.scene.frame_start
         self.end_frame = bpy.context.scene.frame_end + 1
+        self.frame_count = self.end_frame - self.start_frame
         self.gzdoom = gzdoom
         # Reference frame - used for initial UV and triangle data
         if ref_frame is not None:
@@ -533,7 +538,7 @@ class BlenderModelManager:
             face_mtl = obj_mesh.materials[face.material_index].name
             if face_mtl not in self.material_surfaces:
                 bsurface = BlenderSurface(face_mtl)
-                bsurface.surface.numFrames = self.end_frame - self.start_frame
+                bsurface.surface.numFrames = self.frame_count
                 self.material_surfaces[face_mtl] = bsurface
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
@@ -609,7 +614,7 @@ class BlenderModelManager:
                 obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
                 mesh_triangulate(obj_mesh)
                 obj_mesh.calc_tessface()
-                # Set up frame min/max/origin/radius
+                # Set up frame bounds/origin/radius
                 if not nframe_bounds_set:
                     nframe.mins = obj_mesh.vertices[0].co
                     nframe.maxs = obj_mesh.vertices[0].co
