@@ -80,7 +80,7 @@ class md3Vert:
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def Encode(normal, gzdoom = True):
+    def Encode(normal, gzdoom=True):
         x = normal[0]
         y = normal[1]
         z = normal[2]
@@ -532,6 +532,11 @@ class BlenderModelManager:
             self._add_face(face_index, bsurface, obj_mesh, mesh_obj)
 
     def _add_face(self, face_index, bsurface, obj_mesh, mesh_obj):
+        from collections import namedtuple
+        VertexReference = namedtuple(
+            "VertexReference",
+            "position_index normal_index normal_ref"
+        )
         # A model has several surfaces, which have several faces. For Blender,
         # each face has a normal, UV coordinates, and references to at least 3
         # vertices. Each vertex also has a normal.
@@ -566,7 +571,7 @@ class BlenderModelManager:
                 md3_vertex_index = len(bsurface.unique_vertices)
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
                 bsurface.vertices.setdefault(mesh_obj.name, [])
-                bsurface.vertices[mesh_obj.name].append((
+                bsurface.vertices[mesh_obj.name].append(VertexReference(
                     vertex_index, normal_index, normal_ref))
             else:
                 md3_vertex_index = bsurface.unique_vertices[vertex_id]
@@ -584,8 +589,8 @@ class BlenderModelManager:
             nframe = md3Frame()
             frame_digits = floor(log10(self.end_frame - self.start_frame)) + 1
             frame_num = frame - self.start_frame
-            nframe.name = (
-                "Frame{:0" + str(frame_digits) + "d}").format(frame_num)
+            nframe.name = (("Frame{:0" + str(frame_digits) + "d}")
+                           .format(frame_num))
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
                 obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
@@ -615,9 +620,9 @@ class BlenderModelManager:
                 for mesh_name, vertex_infos in bsurface.vertices.items():
                     obj_mesh = obj_meshes[mesh_name]
                     for vertex_info in vertex_infos:
-                        vertex_position = obj_mesh.vertices[vertex_info[0]].co
-                        normal_object = getattr(obj_mesh, vertex_info[2])
-                        vertex_normal = normal_object[vertex_info[1]].normal
+                        vertex_position = obj_mesh.vertices[vertex_info.position_index].co
+                        normal_object = getattr(obj_mesh, vertex_info.normal_ref)
+                        vertex_normal = normal_object[vertex_info.normal_index].normal
                         nvertex = md3Vert()
                         nvertex.xyz = convert_xyz(vertex_position)
                         nvertex.normal = md3Vert.Encode(vertex_normal)
