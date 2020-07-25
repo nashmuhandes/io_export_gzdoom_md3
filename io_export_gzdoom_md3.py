@@ -472,7 +472,7 @@ class BlenderSurface:
         # "normal index" is the index of the normal on the normal object, and
         # "normal reference" is a string referring to the array to use when
         # which has the normal to use.
-        self.vertices = OrderedDict()
+        self.vertices = {}
 
         # Vertices (position, normal, and UV) in MD3 binary format, mapped to
         # their indices
@@ -532,6 +532,7 @@ class BlenderModelManager:
             face_mtl = obj_mesh.materials[face.material_index].name
             if face_mtl not in self.material_surfaces:
                 bsurface = BlenderSurface(face_mtl)
+                bsurface.surface.numFrames = self.end_frame - self.start_frame
                 self.material_surfaces[face_mtl] = bsurface
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
