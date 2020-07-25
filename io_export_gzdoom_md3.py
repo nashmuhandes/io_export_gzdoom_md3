@@ -205,13 +205,16 @@ class md3Surface:
         self.ofsShaders = 0
         self.ofsUV = 0
         self.ofsVerts = 0
-        self.ofsEnd
+        self.ofsEnd = 0
+        self.size = 0
         self.shader = md3Shader()
         self.triangles = []
         self.uv = []
         self.verts = []
 
     def GetSize(self):
+        if self.size > 0:
+            return self.size
         sz = struct.calcsize(self.binaryFormat)
         self.ofsTriangles = sz
         for t in self.triangles:
@@ -226,6 +229,7 @@ class md3Surface:
         for v in self.verts:
             sz += v.GetSize()
         self.ofsEnd = sz
+        self.size = sz
         return self.ofsEnd
 
     def Save(self, file):
@@ -362,11 +366,14 @@ class md3Object:
         self.ofsTags = 0
         self.ofsSurfaces = 0
         self.ofsEnd = 0
+        self.size = 0
         self.frames = []
         self.tags = []
         self.surfaces = []
 
     def GetSize(self):
+        if self.size > 0:
+            return self.size
         self.ofsFrames = struct.calcsize(self.binaryFormat)
         self.ofsTags = self.ofsFrames
         for f in self.frames:
@@ -377,6 +384,7 @@ class md3Object:
         self.ofsEnd = self.ofsSurfaces
         for s in self.surfaces:
             self.ofsEnd += s.GetSize()
+        self.size = self.ofsEnd
         return self.ofsEnd
 
     def Save(self, file):
@@ -589,7 +597,7 @@ class BlenderModelManager:
             nframe = md3Frame()
             frame_digits = floor(log10(self.end_frame - self.start_frame)) + 1
             frame_num = frame - self.start_frame
-            nframe.name = (("Frame{:0" + str(frame_digits) + "d}")
+            nframe.name = (("{:0" + str(frame_digits) + "d}")
                            .format(frame_num))
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
