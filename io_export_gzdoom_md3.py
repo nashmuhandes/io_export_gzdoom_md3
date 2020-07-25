@@ -822,6 +822,7 @@ class ExportMD3(bpy.types.Operator):
         ("blender","Blender internal text","Write log to Blender text data block")
     ]
 
+    filename_ext = ".md3"
     filepath = StringProperty(
         subtype='FILE_PATH',
         name="File Path",
