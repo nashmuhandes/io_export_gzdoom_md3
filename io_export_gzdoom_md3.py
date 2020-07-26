@@ -769,17 +769,19 @@ def save_md3(settings):
     from mathutils import Euler, Matrix, Vector
     from math import radians
     starttime = time.clock()  # start timer
-    newlogpath = splitext(settings.savepath)[0] + ".log"
-    logbasename = basename(newlogpath)
+    fullpath = splitext(settings.savepath)[0]
+    modelname = basename(fullpath)
+    logname = modelname + ".log"
+    logfpath = fullpath + ".log"
     if settings.name == "":
-        settings.name = logbasename
+        settings.name = modelname
     dumpall = settings.dumpall
     if settings.logtype == "append":
-        log = open(newlogpath,"a")
+        log = open(logfpath,"a")
     elif settings.logtype == "overwrite":
-        log = open(newlogpath,"w")
+        log = open(logfpath,"w")
     elif settings.logtype == "blender":
-        log = bpy.data.texts.new(logbasename)
+        log = bpy.data.texts.new(logname)
         log.clear()
     else:
         log = None
