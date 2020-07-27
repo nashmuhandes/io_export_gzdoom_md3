@@ -607,6 +607,10 @@ class BlenderModelManager:
             frame_num = frame - self.start_frame
             nframe.name = (("{:0" + str(frame_digits) + "d}")
                            .format(frame_num))
+            if bpy.context.active_object in self.mesh_objects:
+                nframe.localOrigin = bpy.context.active_object.location
+            else:
+                nframe.localOrigin = self.mesh_objects[0]
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
                 obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
@@ -618,7 +622,6 @@ class BlenderModelManager:
                 if not nframe_bounds_set:
                     nframe.mins = obj_mesh.vertices[0].co.copy()
                     nframe.maxs = obj_mesh.vertices[0].co.copy()
-                    nframe.localOrigin = mesh_obj.location
                     nframe_bounds_set = True
                     armature = mesh_obj.find_armature()
                     if armature:
