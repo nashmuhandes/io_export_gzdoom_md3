@@ -535,13 +535,21 @@ class BlenderModelManager:
         # See what materials the mesh references, and add new surfaces for
         # those materials if necessary
         for face_index, face in enumerate(obj_mesh.tessfaces):
-            face_mtl = obj_mesh.materials[face.material_index].name
+            # Prefer using the md3shader property of the material. Use the
+            # material name if the material does not have the md3shader
+            # property.
+            try:
+                face_mtl = obj_mesh.materials[face.material_index]["md3shader"]
+            except:
+                face_mtl = obj_mesh.materials[face.material_index].name
+            # Add the new surface to material_surfaces if it isn't already in
             if face_mtl not in self.material_surfaces:
                 bsurface = BlenderSurface(face_mtl)
                 bsurface.surface.numFrames = self.frame_count
                 self.material_surfaces[face_mtl] = bsurface
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
+            # Add the faces to the surface
             self._add_face(face_index, bsurface, obj_mesh, mesh_obj.name)
         bpy.data.meshes.remove(obj_mesh)
 
@@ -564,10 +572,17 @@ class BlenderModelManager:
         face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index].uv
         ntri = md3Triangle()
         for vertex_iter_index, vertex_index in enumerate(face.vertices):
+            # Set up the new triangle
+            # Faces shouldn't have more than 3 vertices, since the mesh is
+            # triangulated beforehand.
             if vertex_iter_index > 2:
                 print("WARNING! Face %d has more than 3 vertices!" % face_index)
+            # Get vertex ID, which is the vertex in MD3 binary format. First,
+            # get the vertex position
             vertex = obj_mesh.vertices[vertex_index]
             vertex_position = vertex.co
+            # Get vertex normal. If the face is flat-shaded, the face normal is
+            # used. Otherwise, the vertex normal is used.
             normal_ref = "tessfaces"
             normal_index = face_index
             if face.use_smooth:
@@ -575,22 +590,32 @@ class BlenderModelManager:
                 normal_index = vertex_index
             normal_object = getattr(obj_mesh, normal_ref)
             vertex_normal = normal_object[normal_index].normal
+            # Get UV coordinates for this vertex.
             vertex_uv = face_uvs[vertex_iter_index]
+            # Get ID from position, normal, and UV.
             vertex_id = BlenderModelManager.encode_vertex(
                 vertex_position, vertex_normal, vertex_uv, self.gzdoom)
+            # Add the vertex if it hasn't already been added.
             if vertex_id not in bsurface.unique_vertices:
+                # numVerts is used because the surface contains vertex data for
+                # every frame.
                 bsurface.surface.numVerts += 1
+                # Texture coordinates do not change per frame, so they can be
+                # added now.
                 ntexcoord = md3TexCoord()
                 ntexcoord.u = vertex_uv[0]
                 ntexcoord.v = vertex_uv[1]
                 bsurface.surface.uv.append(ntexcoord)
+                # Map "Vertex ID" to the MD3 vertex index
                 md3_vertex_index = len(bsurface.unique_vertices)
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
                 vert_refs = bsurface.vertex_refs.setdefault(obj_name, [])
                 vert_refs.append(VertexReference(
                     vertex_index, normal_index, normal_ref))
             else:
+                # The vertex has already been added, so just get its index.
                 md3_vertex_index = bsurface.unique_vertices[vertex_id]
+            # Set the vertex index on the triangle.
             ntri.indexes[vertex_iter_index] = md3_vertex_index
         bsurface.surface.triangles.append(ntri)
 
