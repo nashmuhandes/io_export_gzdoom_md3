@@ -54,21 +54,21 @@ MD3_XYZ_SCALE = 64.0
 
 
 
-class md3Vert:
+class MD3Vertex:
     xyz = []
     normal = 0
-    binaryFormat = "<3hH"
+    binary_format = "<3hH"
 
     def __init__(self):
         self.xyz = [0, 0, 0]
         self.normal = 0
 
-    def GetSize(self):
-        return struct.calcsize(self.binaryFormat)
+    def get_size(self):
+        return struct.calcsize(self.binary_format)
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def Decode(latlng):
+    def decode(latlng):
         lat = (latlng >> 8) & 0xFF;
         lng = (latlng) & 0xFF;
         lat *= math.pi / 128;
@@ -81,7 +81,7 @@ class md3Vert:
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def Encode(normal, gzdoom=True):
+    def encode(normal, gzdoom=True):
         x = normal[0]
         y = normal[1]
         z = normal[2]
@@ -106,319 +106,299 @@ class md3Vert:
         retval = ((int(lat) & 0xFF) << 8) | (int(lng) & 0xFF)
         return retval
 
-    def Save(self, file):
-        tmpData = [0] * 4
-        tmpData[0] = self.xyz[0]
-        tmpData[1] = self.xyz[1]
-        tmpData[2] = self.xyz[2]
-        tmpData[3] = self.normal
-        data = struct.pack(self.binaryFormat, tmpData[0], tmpData[1], tmpData[2], tmpData[3])
+    def save(self, file):
+        data = struct.pack(self.binary_format, *self.xyz, self.normal)
         file.write(data)
 
-class md3TexCoord:
+class MD3TexCoord:
     u = 0.0
     v = 0.0
 
-    binaryFormat = "<2f"
+    binary_format = "<2f"
 
     def __init__(self):
         self.u = 0.0
         self.v = 0.0
 
-    def GetSize(self):
-        return struct.calcsize(self.binaryFormat)
+    def get_size(self):
+        return struct.calcsize(self.binary_format)
 
-    def Save(self, file):
-        tmpData = [0] * 2
-        tmpData[0] = self.u
-        tmpData[1] = 1.0 - self.v
-        data = struct.pack(self.binaryFormat, tmpData[0], tmpData[1])
+    def save(self, file):
+        uv_x = self.u
+        uv_y = 1.0 - self.v
+        data = struct.pack(self.binary_format, uv_x, uv_y)
         file.write(data)
 
-class md3Triangle:
+class MD3Triangle:
     indexes = []
 
-    binaryFormat = "<3i"
+    binary_format = "<3i"
 
     def __init__(self):
         self.indexes = [ 0, 0, 0 ]
 
-    def GetSize(self):
-        return struct.calcsize(self.binaryFormat)
+    def get_size(self):
+        return struct.calcsize(self.binary_format)
 
-    def Save(self, file):
-        tmpData = [0] * 3
-        tmpData[0] = self.indexes[0]
-        tmpData[1] = self.indexes[2] # reverse
-        tmpData[2] = self.indexes[1] # reverse
-        data = struct.pack(self.binaryFormat,tmpData[0], tmpData[1], tmpData[2])
+    def save(self, file):
+        indexes = self.indexes[:]
+        indexes[1:3] = reversed(indexes[1:3])  # Winding order fix
+        data = struct.pack(self.binary_format, *indexes)
         file.write(data)
 
-class md3Shader:
+class MD3Shader:
     name = ""
     index = 0
 
-    binaryFormat = "<%dsi" % MAX_QPATH
+    binary_format = "<%dsi" % MAX_QPATH
 
     def __init__(self):
         self.name = ""
         self.index = 0
 
-    def GetSize(self):
-        return struct.calcsize(self.binaryFormat)
+    def get_size(self):
+        return struct.calcsize(self.binary_format)
 
-    def Save(self, file):
-        tmpData = [0] * 2
-        tmpData[0] = str.encode(self.name)
-        tmpData[1] = self.index
-        data = struct.pack(self.binaryFormat, tmpData[0], tmpData[1])
+    def save(self, file):
+        name = str.encode(self.name)
+        data = struct.pack(self.binary_format, name, self.index)
         file.write(data)
 
-class md3Surface:
+class MD3Surface:
     ident = ""
     name = ""
     flags = 0
-    numFrames = 0
-    # numShaders = 0
-    numVerts = 0
-    # numTriangles = 0
-    ofsTriangles = 0
-    ofsShaders = 0
-    ofsUV = 0
-    ofsVerts = 0
-    ofsEnd = 0
+    num_frames = 0
+    num_verts = 0
+    ofs_triangles = 0
+    ofs_shaders = 0
+    ofs_uv = 0
+    ofs_verts = 0
+    ofs_end = 0
     shader = ""
     triangles = []
     uv = []
     verts = []
 
-    binaryFormat = "<4s%ds10i" % MAX_QPATH  # 1 int, name, then 10 ints
+    binary_format = "<4s%ds10i" % MAX_QPATH  # 1 int, name, then 10 ints
 
     def __init__(self):
         self.ident = MD3_IDENT
         self.name = ""
         self.flags = 0
-        self.numFrames = 0
-        # self.numShaders = 0
-        self.numVerts = 0
-        # self.numTriangles = 0
-        self.ofsTriangles = 0
-        self.ofsShaders = 0
-        self.ofsUV = 0
-        self.ofsVerts = 0
-        self.ofsEnd = 0
+        self.num_frames = 0
+        self.num_verts = 0
+        self.ofs_triangles = 0
+        self.ofs_shaders = 0
+        self.ofs_uv = 0
+        self.ofs_verts = 0
+        self.ofs_end = 0
         self.size = 0
-        self.shader = md3Shader()
+        self.shader = MD3Shader()
         self.triangles = []
         self.uv = []
         self.verts = []
 
-    def GetSize(self):
+    def get_size(self):
         if self.size > 0:
             return self.size
-        sz = struct.calcsize(self.binaryFormat)
+        sz = struct.calcsize(self.binary_format)
         # Triangles
-        self.ofsTriangles = sz
+        self.ofs_triangles = sz
         for t in self.triangles:
-            sz += t.GetSize()
+            sz += t.get_size()
         # Shader
-        self.ofsShaders = sz
-        sz += self.shader.GetSize()
+        self.ofs_shaders = sz
+        sz += self.shader.get_size()
         # UVs (St)
-        self.ofsUV = sz
+        self.ofs_uv = sz
         for u in self.uv:
-            sz += u.GetSize()
+            sz += u.get_size()
         # Vertices for each frame
-        self.ofsVerts = sz
+        self.ofs_verts = sz
         for v in self.verts:
-            sz += v.GetSize()
+            sz += v.get_size()
         # End
-        self.ofsEnd = sz
+        self.ofs_end = sz
         self.size = sz
-        return self.ofsEnd
+        return self.ofs_end
 
-    def Save(self, file):
-        self.GetSize()
-        tmpData = [0] * 12
-        tmpData[0] = str.encode(self.ident)
-        tmpData[1] = str.encode(self.name)
-        tmpData[2] = self.flags
-        tmpData[3] = self.numFrames
-        tmpData[4] = 1 # len(self.shaders) # self.numShaders
-        tmpData[5] = self.numVerts
-        tmpData[6] = len(self.triangles) # self.numTriangles
-        tmpData[7] = self.ofsTriangles
-        tmpData[8] = self.ofsShaders
-        tmpData[9] = self.ofsUV
-        tmpData[10] = self.ofsVerts
-        tmpData[11] = self.ofsEnd
-        data = struct.pack(self.binaryFormat, tmpData[0],tmpData[1],tmpData[2],tmpData[3],tmpData[4],tmpData[5],tmpData[6],tmpData[7],tmpData[8],tmpData[9],tmpData[10],tmpData[11])
+    def save(self, file):
+        self.get_size()
+        temp_data = [0] * 12
+        temp_data[0] = str.encode(self.ident)
+        temp_data[1] = str.encode(self.name)
+        temp_data[2] = self.flags
+        temp_data[3] = self.num_frames
+        temp_data[4] = 1  # len(self.shaders) # self.num_shaders
+        temp_data[5] = self.num_verts
+        temp_data[6] = len(self.triangles)  # self.num_triangles
+        temp_data[7] = self.ofs_triangles
+        temp_data[8] = self.ofs_shaders
+        temp_data[9] = self.ofs_uv
+        temp_data[10] = self.ofs_verts
+        temp_data[11] = self.ofs_end
+        data = struct.pack(self.binary_format, *temp_data)
         file.write(data)
 
         # write the tri data
         for t in self.triangles:
-            t.Save(file)
+            t.save(file)
 
         # save the shaders
-        self.shader.Save(file)
+        self.shader.save(file)
 
         # save the uv info
         for u in self.uv:
-            u.Save(file)
+            u.save(file)
 
         # save the verts
         for v in self.verts:
-            v.Save(file)
+            v.save(file)
 
-class md3Tag:
+class MD3Tag:
     name = ""
     origin = []
     axis = []
 
-    binaryFormat="<%ds3f9f" % MAX_QPATH
+    binary_format="<%ds3f9f" % MAX_QPATH
 
     def __init__(self):
         self.name = ""
         self.origin = [0, 0, 0]
         self.axis = [0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-    def GetSize(self):
-        return struct.calcsize(self.binaryFormat)
+    def get_size(self):
+        return struct.calcsize(self.binary_format)
 
-    def Save(self, file):
-        tmpData = [0] * 13
-        tmpData[0] = self.name
-        tmpData[1] = float(self.origin[0])
-        tmpData[2] = float(self.origin[1])
-        tmpData[3] = float(self.origin[2])
-        tmpData[4] = float(self.axis[0])
-        tmpData[5] = float(self.axis[1])
-        tmpData[6] = float(self.axis[2])
-        tmpData[7] = float(self.axis[3])
-        tmpData[8] = float(self.axis[4])
-        tmpData[9] = float(self.axis[5])
-        tmpData[10] = float(self.axis[6])
-        tmpData[11] = float(self.axis[7])
-        tmpData[12] = float(self.axis[8])
-        data = struct.pack(self.binaryFormat, tmpData[0].encode('utf-8'),tmpData[1],tmpData[2],tmpData[3],tmpData[4],tmpData[5],tmpData[6], tmpData[7], tmpData[8], tmpData[9], tmpData[10], tmpData[11], tmpData[12])
+    def save(self, file):
+        temp_data = [0] * 13
+        temp_data[0] = str.encode(self.name)
+        temp_data[1] = float(self.origin[0])
+        temp_data[2] = float(self.origin[1])
+        temp_data[3] = float(self.origin[2])
+        temp_data[4] = float(self.axis[0])
+        temp_data[5] = float(self.axis[1])
+        temp_data[6] = float(self.axis[2])
+        temp_data[7] = float(self.axis[3])
+        temp_data[8] = float(self.axis[4])
+        temp_data[9] = float(self.axis[5])
+        temp_data[10] = float(self.axis[6])
+        temp_data[11] = float(self.axis[7])
+        temp_data[12] = float(self.axis[8])
+        data = struct.pack(self.binary_format, *temp_data)
         file.write(data)
 
-class md3Frame:
+class MD3Frame:
     mins = 0
     maxs = 0
-    localOrigin = 0
+    local_origin = 0
     radius = 0.0
     name = ""
 
-    binaryFormat="<3f3f3ff16s"
+    binary_format="<3f3f3ff16s"
 
     def __init__(self):
         self.mins = [0, 0, 0]
         self.maxs = [0, 0, 0]
-        self.localOrigin = [0, 0, 0]
+        self.local_origin = [0, 0, 0]
         self.radius = 0.0
         self.name = ""
 
-    def GetSize(self):
-        return struct.calcsize(self.binaryFormat)
+    def get_size(self):
+        return struct.calcsize(self.binary_format)
 
-    def Save(self, file):
-        tmpData = [0] * 11
-        tmpData[0] = self.mins[0]
-        tmpData[1] = self.mins[1]
-        tmpData[2] = self.mins[2]
-        tmpData[3] = self.maxs[0]
-        tmpData[4] = self.maxs[1]
-        tmpData[5] = self.maxs[2]
-        tmpData[6] = self.localOrigin[0]
-        tmpData[7] = self.localOrigin[1]
-        tmpData[8] = self.localOrigin[2]
-        tmpData[9] = self.radius
-        tmpData[10] = str.encode("frame" + self.name)
-        data = struct.pack(self.binaryFormat, tmpData[0],tmpData[1],tmpData[2],tmpData[3],tmpData[4],tmpData[5],tmpData[6],tmpData[7], tmpData[8], tmpData[9], tmpData[10])
+    def save(self, file):
+        temp_data = [0] * 11
+        temp_data[0] = self.mins[0]
+        temp_data[1] = self.mins[1]
+        temp_data[2] = self.mins[2]
+        temp_data[3] = self.maxs[0]
+        temp_data[4] = self.maxs[1]
+        temp_data[5] = self.maxs[2]
+        temp_data[6] = self.local_origin[0]
+        temp_data[7] = self.local_origin[1]
+        temp_data[8] = self.local_origin[2]
+        temp_data[9] = self.radius
+        temp_data[10] = str.encode("frame" + self.name)
+        data = struct.pack(self.binary_format, *temp_data)
         file.write(data)
 
-class md3Object:
+class MD3Object:
     # header structure
     ident = ""          # this is used to identify the file (must be IDP3)
     version = 0         # the version number of the file (Must be 15)
     name = ""
     flags = 0
-    # numFrames = 0
-    # numTags = 0
-    # numSurfaces = 0
-    numSkins = 0
-    ofsFrames = 0
-    ofsTags = 0
-    ofsSurfaces = 0
-    ofsEnd = 0
+    num_skins = 0
+    ofs_frames = 0
+    ofs_tags = 0
+    ofs_surfaces = 0
+    ofs_end = 0
     frames = []
     tags = []
     surfaces = []
 
-    binaryFormat="<4si%ds9i" % MAX_QPATH  # little-endian (<), 17 integers (17i)
+    binary_format="<4si%ds9i" % MAX_QPATH  # little-endian (<), 17 integers (17i)
 
     def __init__(self):
         self.ident = MD3_IDENT
         self.version = MD3_VERSION
         self.name = ""
         self.flags = 0
-        # self.numFrames = 0
-        # self.numTags = 0
-        # self.numSurfaces = 0
-        self.numSkins = 0
-        self.ofsFrames = 0
-        self.ofsTags = 0
-        self.ofsSurfaces = 0
-        self.ofsEnd = 0
+        self.num_skins = 0
+        self.ofs_frames = 0
+        self.ofs_tags = 0
+        self.ofs_surfaces = 0
+        self.ofs_end = 0
         self.size = 0
         self.frames = []
         self.tags = []
         self.surfaces = []
 
-    def GetSize(self):
+    def get_size(self):
         if self.size > 0:
             return self.size
-        self.ofsFrames = struct.calcsize(self.binaryFormat)
-        self.ofsTags = self.ofsFrames
+        self.ofs_frames = struct.calcsize(self.binary_format)
+        self.ofs_tags = self.ofs_frames
         for f in self.frames:
-            self.ofsTags += f.GetSize()
-        self.ofsSurfaces += self.ofsTags
+            self.ofs_tags += f.get_size()
+        self.ofs_surfaces += self.ofs_tags
         for t in self.tags:
-            self.ofsSurfaces += t.GetSize()
-        self.ofsEnd = self.ofsSurfaces
+            self.ofs_surfaces += t.get_size()
+        self.ofs_End = self.ofs_surfaces
         for s in self.surfaces:
-            self.ofsEnd += s.GetSize()
-        self.size = self.ofsEnd
-        return self.ofsEnd
+            self.ofs_end += s.get_size()
+        self.size = self.ofs_end
+        return self.ofs_end
 
-    def Save(self, file):
-        self.GetSize()
-        tmpData = [0] * 12
-        tmpData[0] = str.encode(self.ident)
-        tmpData[1] = self.version
-        tmpData[2] = str.encode(self.name)
-        tmpData[3] = self.flags
-        tmpData[4] = len(self.frames) # self.numFrames
-        tmpData[5] = len(self.tags) # self.numTags
-        tmpData[6] = len(self.surfaces) # self.numSurfaces
-        tmpData[7] = self.numSkins
-        tmpData[8] = self.ofsFrames
-        tmpData[9] = self.ofsTags
-        tmpData[10] = self.ofsSurfaces
-        tmpData[11] = self.ofsEnd
+    def save(self, file):
+        self.get_size()
+        temp_data = [0] * 12
+        temp_data[0] = str.encode(self.ident)
+        temp_data[1] = self.version
+        temp_data[2] = str.encode(self.name)
+        temp_data[3] = self.flags
+        temp_data[4] = len(self.frames)  # self.num_frames
+        temp_data[5] = len(self.tags)  # self.num_tags
+        temp_data[6] = len(self.surfaces)  # self.num_surfaces
+        temp_data[7] = self.num_skins
+        temp_data[8] = self.ofs_frames
+        temp_data[9] = self.ofs_tags
+        temp_data[10] = self.ofs_surfaces
+        temp_data[11] = self.ofs_end
 
-        data = struct.pack(self.binaryFormat, tmpData[0],tmpData[1],tmpData[2],tmpData[3],tmpData[4],tmpData[5],tmpData[6],tmpData[7], tmpData[8], tmpData[9], tmpData[10], tmpData[11])
+        data = struct.pack(self.binary_format, *temp_data)
         file.write(data)
 
         for f in self.frames:
-            f.Save(file)
+            f.save(file)
 
         for t in self.tags:
-            t.Save(file)
+            t.save(file)
 
         for s in self.surfaces:
-            s.Save(file)
+            s.save(file)
 
 
 def message(log,msg):
@@ -427,7 +407,7 @@ def message(log,msg):
     else:
         print(msg)
 
-class md3Settings:
+class MD3Settings:
     def __init__(self,
                  savepath,
                  name,
@@ -465,7 +445,7 @@ def convert_xyz(xyz):
 class BlenderSurface:
     def __init__(self, material):
         self.material = material  # Blender material name -> Shader
-        self.surface = md3Surface()  # MD3 surface
+        self.surface = MD3Surface()  # MD3 surface
         # Set names for surface and its material, both of which are named after
         # the material it uses
         self.surface.name = material
@@ -483,8 +463,8 @@ class BlenderSurface:
         # their indices
         self.unique_vertices = {}
 
-    def GetSize(self):
-        return self.surface.GetSize()
+    def get_size(self):
+        return self.surface.get_size()
 
 
 # A class to help manage a model, which consists of one or more objects which
@@ -492,7 +472,7 @@ class BlenderSurface:
 class BlenderModelManager:
     def __init__(self, gzdoom, ref_frame = None):
         from mathutils import Matrix
-        self.md3 = md3Object()
+        self.md3 = MD3Object()
         self.material_surfaces = OrderedDict()
         self.mesh_objects = []
         self.fix_transform = Matrix.Identity(4)
@@ -509,15 +489,15 @@ class BlenderModelManager:
 
     def save(self, filename):
         nfile = open(filename, "wb")
-        self.md3.Save(nfile)
+        self.md3.save(nfile)
         nfile.close()
 
     @staticmethod
     def encode_vertex(position, normal, uv, gzdoom):
         md3_position = convert_xyz(position)
-        md3_normal = md3Vert.Encode(normal, gzdoom)
-        return (pack(md3Vert.binaryFormat, *md3_position, md3_normal)
-              + pack(md3TexCoord.binaryFormat, *uv))
+        md3_normal = MD3Vertex.encode(normal, gzdoom)
+        return (pack(MD3Vertex.binary_format, *md3_position, md3_normal)
+              + pack(MD3TexCoord.binary_format, *uv))
 
     def add_mesh(self, mesh_obj):
         """
@@ -545,7 +525,7 @@ class BlenderModelManager:
             # Add the new surface to material_surfaces if it isn't already in
             if face_mtl not in self.material_surfaces:
                 bsurface = BlenderSurface(face_mtl)
-                bsurface.surface.numFrames = self.frame_count
+                bsurface.surface.num_frames = self.frame_count
                 self.material_surfaces[face_mtl] = bsurface
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
@@ -570,7 +550,7 @@ class BlenderModelManager:
         # A vertex consists of a position, a normal, and a UV coordinate.
         face = obj_mesh.tessfaces[face_index]
         face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index].uv
-        ntri = md3Triangle()
+        ntri = MD3Triangle()
         for vertex_iter_index, vertex_index in enumerate(face.vertices):
             # Set up the new triangle
             # Faces shouldn't have more than 3 vertices, since the mesh is
@@ -597,12 +577,12 @@ class BlenderModelManager:
                 vertex_position, vertex_normal, vertex_uv, self.gzdoom)
             # Add the vertex if it hasn't already been added.
             if vertex_id not in bsurface.unique_vertices:
-                # numVerts is used because the surface contains vertex data for
-                # every frame.
-                bsurface.surface.numVerts += 1
+                # num_verts is used because the surface contains vertex data
+                # for every frame.
+                bsurface.surface.num_verts += 1
                 # Texture coordinates do not change per frame, so they can be
                 # added now.
-                ntexcoord = md3TexCoord()
+                ntexcoord = MD3TexCoord()
                 ntexcoord.u = vertex_uv[0]
                 ntexcoord.v = vertex_uv[1]
                 bsurface.surface.uv.append(ntexcoord)
@@ -627,15 +607,15 @@ class BlenderModelManager:
         for frame in range(self.start_frame, self.end_frame):
             bpy.context.scene.frame_set(frame)
             obj_meshes = {}
-            nframe = md3Frame()
+            nframe = MD3Frame()
             frame_digits = floor(log10(self.end_frame - self.start_frame)) + 1
             frame_num = frame - self.start_frame
             nframe.name = (("{:0" + str(frame_digits) + "d}")
                            .format(frame_num))
             if bpy.context.active_object in self.mesh_objects:
-                nframe.localOrigin = bpy.context.active_object.location
+                nframe.local_origin = bpy.context.active_object.location
             else:
-                nframe.localOrigin = self.mesh_objects[0]
+                nframe.local_origin = self.mesh_objects[0]
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
                 obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
@@ -650,7 +630,7 @@ class BlenderModelManager:
                     nframe_bounds_set = True
                     armature = mesh_obj.find_armature()
                     if armature:
-                        nframe.localOrigin -= armature.location
+                        nframe.local_origin -= armature.location
                 for vertex in obj_mesh.vertices:
                     if vertex.co[0] < nframe.mins[0]:
                         nframe.mins[0] = vertex.co[0]
@@ -675,9 +655,9 @@ class BlenderModelManager:
                         vertex_position = obj_mesh.vertices[vertex_info.vertex_index].co
                         normal_object = getattr(obj_mesh, vertex_info.normal_ref)
                         vertex_normal = normal_object[vertex_info.normal_index].normal
-                        nvertex = md3Vert()
+                        nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
-                        nvertex.normal = md3Vert.Encode(vertex_normal, self.gzdoom)
+                        nvertex.normal = MD3Vertex.encode(vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
             for obj_mesh in obj_meshes.values():
                 bpy.data.meshes.remove(obj_mesh)
@@ -688,7 +668,7 @@ class BlenderModelManager:
         position = self.fix_transform * position
         orientation = bobject.matrix_world.to_3x3().normalize()
         orientation = fix_transform.to_3x3() * orientation
-        ntag = md3Tag()
+        ntag = MD3Tag()
         ntag.origin = position
         ntag.axis[0:3] = orientation[0]
         ntag.axis[3:6] = orientation[1]
@@ -705,42 +685,49 @@ def print_md3(log,md3,dumpall):
     message(log,"Number of Frames: " + str(len(md3.frames)))
     message(log,"Number of Tags: " + str(len(md3.tags)))
     message(log,"Number of Surfaces: " + str(len(md3.surfaces)))
-    message(log,"Number of Skins: " + str(md3.numSkins))
-    message(log,"Offset Frames: " + str(md3.ofsFrames))
-    message(log,"Offset Tags: " + str(md3.ofsTags))
-    message(log,"Offset Surfaces: " + str(md3.ofsSurfaces))
-    message(log,"Offset end: " + str(md3.ofsEnd))
+    message(log,"Number of Skins: " + str(md3.num_skins))
+    message(log,"Offset Frames: " + str(md3.ofs_frames))
+    message(log,"Offset Tags: " + str(md3.ofs_tags))
+    message(log,"Offset Surfaces: " + str(md3.ofs_surfaces))
+    message(log,"Offset end: " + str(md3.ofs_end))
+
+    def vec3_to_string(vector, integer=False):
+        if integer is True:
+            template = "{:< 5d} "
+        else:
+            template = "{:.4f} "
+        return (template * 3).format(*vector)
 
     if dumpall:
         message(log,"Frames:")
         for f in md3.frames:
-            message(log," Mins: " + str(f.mins[0]) + " " + str(f.mins[1]) + " " + str(f.mins[2]))
-            message(log," Maxs: " + str(f.maxs[0]) + " " + str(f.maxs[1]) + " " + str(f.maxs[2]))
-            message(log," Origin(local): " + str(f.localOrigin[0]) + " " + str(f.localOrigin[1]) + " " + str(f.localOrigin[2]))
+            message(log," Mins: " + vec3_to_string(f.mins))
+            message(log," Maxs: " + vec3_to_string(f.maxs))
+            message(log," Origin(local): " + vec3_to_string(f.local_origin))
             message(log," Radius: " + str(f.radius))
             message(log," Name: " + f.name)
 
         message(log,"Tags:")
         for t in md3.tags:
             message(log," Name: " + t.name)
-            message(log," Origin: " + str(t.origin[0]) + " " + str(t.origin[1]) + " " + str(t.origin[2]))
-            message(log," Axis[0]: " + str(t.axis[0]) + " " + str(t.axis[1]) + " " + str(t.axis[2]))
-            message(log," Axis[1]: " + str(t.axis[3]) + " " + str(t.axis[4]) + " " + str(t.axis[5]))
-            message(log," Axis[2]: " + str(t.axis[6]) + " " + str(t.axis[7]) + " " + str(t.axis[8]))
+            message(log," Origin: " + vec3_to_string(t.origin))
+            message(log," Axis[0]: " + vec3_to_string(t.axis[0:3]))
+            message(log," Axis[1]: " + vec3_to_string(t.axis[3:6]))
+            message(log," Axis[2]: " + vec3_to_string(t.axis[6:9]))
 
         message(log,"Surfaces:")
         for s in md3.surfaces:
             message(log," Ident: " + s.ident)
             message(log," Name: " + s.name)
             message(log," Flags: " + str(s.flags))
-            message(log," # of Frames: " + str(s.numFrames))
-            # message(log," # of Shaders: " + str(s.numShaders))
-            message(log," # of Verts: " + str(s.numVerts))
+            message(log," # of Frames: " + str(s.num_frames))
+            # message(log," # of Shaders: " + str(s.num_shaders))
+            message(log," # of Verts: " + str(s.num_verts))
             message(log," # of Triangles: " + str(len(s.triangles)))
-            message(log," Offset Triangles: " + str(s.ofsTriangles))
-            message(log," Offset UVs: " + str(s.ofsUV))
-            message(log," Offset Verts: " + str(s.ofsVerts))
-            message(log," Offset End: " + str(s.ofsEnd))
+            message(log," Offset Triangles: " + str(s.ofs_triangles))
+            message(log," Offset UVs: " + str(s.ofs_uv))
+            message(log," Offset Verts: " + str(s.ofs_verts))
+            message(log," Offset End: " + str(s.ofs_end))
             #message(log," Shaders:")
             #for shader in s.shaders:
                 #message(log,"  Name: " + shader.name)
@@ -748,27 +735,27 @@ def print_md3(log,md3,dumpall):
             message(log," Shader name: " + s.shader.name)
             message(log," Triangles:")
             for tri in s.triangles:
-                message(log,"  Indexes: " + str(tri.indexes[0]) + " " + str(tri.indexes[1]) + " " + str(tri.indexes[2]))
+                message(log,"  Indexes: " + vec3_to_string(tri.indexes, True))
             message(log," UVs:")
             for uv in s.uv:
                 message(log,"  U: " + str(uv.u))
                 message(log,"  V: " + str(uv.v))
             message(log," Verts:")
             for vert in s.verts:
-                message(log,"  XYZ: " + str(vert.xyz[0]) + " " + str(vert.xyz[1]) + " " + str(vert.xyz[2]))
+                message(log,"  XYZ: " + vec3_to_string(vert.xyz, True))
                 message(log,"  Normal: " + str(vert.normal))
 
     shader_count = 0
     vert_count = 0
     tri_count = 0
     for surface in md3.surfaces:
-        shader_count += 1 # surface.numShaders
+        shader_count += 1 # surface.num_shaders
         tri_count += len(surface.triangles)
-        vert_count += surface.numVerts
-        #if surface.numShaders >= MD3_MAX_SHADERS:
-            #message(log,"!Warning: Shader limit (" + str(surface.numShaders) + "/" + str(MD3_MAX_SHADERS) + ") reached for surface " + surface.name)
-        if surface.numVerts >= MD3_MAX_VERTICES:
-            message(log,"!Warning: Vertex limit (" + str(surface.numVerts) + "/" + str(MD3_MAX_VERTICES) + ") reached for surface " + surface.name)
+        vert_count += surface.num_verts
+        # if surface.num_shaders >= MD3_MAX_SHADERS:
+            # message(log,"!Warning: Shader limit (" + str(surface.num_shaders) + "/" + str(MD3_MAX_SHADERS) + ") reached for surface " + surface.name)
+        if surface.num_verts >= MD3_MAX_VERTICES:
+            message(log,"!Warning: Vertex limit (" + str(surface.num_verts) + "/" + str(MD3_MAX_VERTICES) + ") reached for surface " + surface.name)
         if len(surface.triangles) >= MD3_MAX_TRIANGLES:
             message(log,"!Warning: Triangle limit (" + str(len(surface.triangles)) + "/" + str(MD3_MAX_TRIANGLES) + ") reached for surface " + surface.name)
 
@@ -837,7 +824,7 @@ def save_md3(settings):
             elif bobject.type == 'EMPTY':
                 model.add_tag(bobject)
     model.setup_frames()
-    model.md3.GetSize()
+    model.md3.get_size()
     print_md3(log, model.md3, dumpall)
     model.save(settings.savepath)
     endtime = time.clock() - starttime
@@ -913,7 +900,7 @@ class ExportMD3(bpy.types.Operator):
         default=True)
 
     def execute(self, context):
-        settings = md3Settings(savepath=self.properties.filepath,
+        settings = MD3Settings(savepath=self.properties.filepath,
                                name=self.properties.md3name,
                                logtype=self.properties.md3logtype,
                                dumpall=self.properties.md3dumpall,
