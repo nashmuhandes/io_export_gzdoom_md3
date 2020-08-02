@@ -27,7 +27,7 @@ bl_info = {
         "description": "Export mesh to GZDoom model with vertex animation (.md3)",
         "warning": "",
         "wiki_url": "",
-        "tracker_url": "https://forum.zdoom.org/viewtopic.php?f=232&t=35790",
+        "tracker_url": "https://forum.zdoom.org/viewtopic.php?f=232&t=69417",
         "category": "Import-Export"}
 
 import bpy, struct, math, time
