@@ -467,6 +467,21 @@ class BlenderSurface:
         return self.surface.get_size()
 
 
+# Code to be used in a future Blender 2.80 port?
+#from collections import namedtuple
+
+#FaceVertex = namedtuple("FaceVertex", "face vertex")
+#face_vertex_uvs = {}
+
+#current_offset = 0
+#for polygon in mesh.polygons:
+    #for loop_index in range(polygon.loop_total):
+        #loop_vertex = mesh.loops[polygon.loop_start + loop_index].vertex_index
+        #face_vertex = FaceVertex(polygon.index, loop_vertex)
+        #face_vertex_uvs[face_vertex] = mesh.uv_layers.active.data[current_offset]
+        #current_offset += 1
+
+
 # A class to help manage a model, which consists of one or more objects which
 # may be fused together into one model
 class BlenderModelManager:
