@@ -531,11 +531,13 @@ class BlenderModelManager:
         # those materials if necessary
         for face_index, face in enumerate(obj_mesh.tessfaces):
             # Prefer using the md3shader property of the material. Use the
-            # material name if the material does not have the md3shader
-            # property.
-            try:
-                face_mtl = obj_mesh.materials[face.material_index]["md3shader"]
-            except:
+            # md3shader object property if the material does not have the
+            # md3shader property, and use the material name if neither are
+            # available.
+            face_mtl = obj_mesh.materials[face.material_index].get("md3shader")
+            if face_mtl is None:
+                face_mtl = mesh_obj.get("md3shader")
+            if face_mtl is None:
                 face_mtl = obj_mesh.materials[face.material_index].name
             # Add the new surface to material_surfaces if it isn't already in
             if face_mtl not in self.material_surfaces:
