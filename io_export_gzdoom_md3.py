@@ -526,10 +526,11 @@ class BlenderModelManager:
         obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
         obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
         mesh_triangulate(obj_mesh)
-        obj_mesh.calc_tessface()
+        if obj_mesh.has_custom_normals:
+            obj_mesh.calc_normals_split()
         # See what materials the mesh references, and add new surfaces for
         # those materials if necessary
-        for face_index, face in enumerate(obj_mesh.tessfaces):
+        for face_index, face in enumerate(obj_mesh.polygons):
             # Prefer using the md3shader property of the material. Use the
             # md3shader object property if the material does not have the
             # md3shader property, and use the material name if neither are
@@ -548,7 +549,7 @@ class BlenderModelManager:
             bsurface = self.material_surfaces[face_mtl]
             # Add the faces to the surface
             self._add_face(face_index, bsurface, obj_mesh, mesh_obj.name)
-        bpy.data.meshes.remove(obj_mesh)
+        bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
 
     def _add_face(self, face_index, bsurface, obj_mesh, obj_name):
         from collections import namedtuple
@@ -565,30 +566,38 @@ class BlenderModelManager:
         # For MD3:
         # A face consists of references to three vertices.
         # A vertex consists of a position, a normal, and a UV coordinate.
-        face = obj_mesh.tessfaces[face_index]
-        face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index].uv
+        face = obj_mesh.polygons[face_index]
         ntri = MD3Triangle()
-        for vertex_iter_index, vertex_index in enumerate(face.vertices):
+        loop_end = face.loop_start + face.loop_total
+        # Faces shouldn't have more than 3 vertices, since the mesh is
+        # triangulated beforehand.
+        if face.loop_total > 2:
+            print("WARNING! Face %d is not a triangle!" % face_index)
+        for loop_iter_index, loop_index in enumerate(
+                range(face.loop_start, loop_end)):
             # Set up the new triangle
-            # Faces shouldn't have more than 3 vertices, since the mesh is
-            # triangulated beforehand.
-            if vertex_iter_index > 2:
-                print("WARNING! Face %d has more than 3 vertices!" % face_index)
             # Get vertex ID, which is the vertex in MD3 binary format. First,
             # get the vertex position
+            vertex_index = obj_mesh.loops[loop_index].vertex_index
             vertex = obj_mesh.vertices[vertex_index]
             vertex_position = vertex.co
             # Get vertex normal. If the face is flat-shaded, the face normal is
             # used. Otherwise, the vertex normal is used.
-            normal_ref = "tessfaces"
+            normal_ref = "polygons"
             normal_index = face_index
             if face.use_smooth:
-                normal_ref = "vertices"
-                normal_index = vertex_index
+                if obj_mesh.has_custom_normals:
+                    # Get normal from loop
+                    normal_ref = "loops"
+                    normal_index = loop_index
+                else:
+                    # Get normal from vertex
+                    normal_ref = "vertices"
+                    normal_index = vertex_index
             normal_object = getattr(obj_mesh, normal_ref)
             vertex_normal = normal_object[normal_index].normal
             # Get UV coordinates for this vertex.
-            vertex_uv = face_uvs[vertex_iter_index]
+            vertex_uv = obj_mesh.uv_layers.active.data[loop_index].uv
             # Get ID from position, normal, and UV.
             vertex_id = BlenderModelManager.encode_vertex(
                 vertex_position, vertex_normal, vertex_uv, self.gzdoom)
@@ -613,7 +622,7 @@ class BlenderModelManager:
                 # The vertex has already been added, so just get its index.
                 md3_vertex_index = bsurface.unique_vertices[vertex_id]
             # Set the vertex index on the triangle.
-            ntri.indexes[vertex_iter_index] = md3_vertex_index
+            ntri.indexes[loop_iter_index] = md3_vertex_index
         bsurface.surface.triangles.append(ntri)
 
     def setup_frames(self):
@@ -639,7 +648,8 @@ class BlenderModelManager:
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
                 mesh_triangulate(obj_mesh)
-                obj_mesh.calc_tessface()
+                if obj_mesh.has_custom_normals:
+                    obj_mesh.calc_normals_split()
                 # Set up frame bounds/origin/radius
                 if not nframe_bounds_set:
                     nframe.mins = obj_mesh.vertices[0].co.copy()
@@ -677,7 +687,7 @@ class BlenderModelManager:
                         nvertex.normal = MD3Vertex.encode(vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
             for obj_mesh in obj_meshes.values():
-                bpy.data.meshes.remove(obj_mesh)
+                bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
 
     def add_tag(self, bobject):
         bpy.context.scene.frame_set(bpy.context.scene.frame_start)
