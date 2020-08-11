@@ -571,7 +571,7 @@ class BlenderModelManager:
         loop_end = face.loop_start + face.loop_total
         # Faces shouldn't have more than 3 vertices, since the mesh is
         # triangulated beforehand.
-        if face.loop_total > 2:
+        if face.loop_total > 3:
             print("WARNING! Face %d is not a triangle!" % face_index)
         for loop_iter_index, loop_index in enumerate(
                 range(face.loop_start, loop_end)):
