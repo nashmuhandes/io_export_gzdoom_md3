@@ -525,9 +525,11 @@ class BlenderModelManager:
         bpy.context.scene.frame_set(self.ref_frame)
         obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
         obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
-        mesh_triangulate(obj_mesh)
-        if obj_mesh.has_custom_normals:
-            obj_mesh.calc_normals_split()
+        # calc_normals_split recalculates normals, even on meshes without
+        # custom normals. If I didn't do this, the vertex normals would be all
+        # wrong.
+        obj_mesh.calc_normals_split()
+        obj_mesh.calc_tessface()
         # See what materials the mesh references, and add new surfaces for
         # those materials if necessary
         for face_index, face in enumerate(obj_mesh.polygons):
@@ -548,56 +550,66 @@ class BlenderModelManager:
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
             # Add the faces to the surface
-            self._add_face(face_index, bsurface, obj_mesh, mesh_obj.name)
+            if len(face.vertices) == 3:
+                self._add_tri(bsurface, obj_mesh, mesh_obj.name, face_index,
+                              face.vertices, obj_mesh.has_custom_normals)
+            else:
+                self._add_quad(bsurface, obj_mesh, mesh_obj.name, face_index,
+                               face)
         bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
 
-    def _add_face(self, face_index, bsurface, obj_mesh, obj_name):
+    def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
+                 mesh_vertex_indices, use_custom_normals,
+                 face_vertex_indices=None):
+        # Define VertexReference named tuple
         from collections import namedtuple
         VertexReference = namedtuple(
             "VertexReference",
-            "vertex_index normal_index normal_ref"
+            "vertex_index "
+            # normal = getattr(obj, normal_ref)[normal_index]
+            "normal_ref normal_index "
+            # normal_obj = getattr(obj, normal_ref)[normal_index]
+            # normal = getattr(normal_obj, normal_subref)[normal_subindex]
+            "normal_subref normal_subindex "
         )
-        # A model has several surfaces, which have several faces. For Blender,
-        # each face has a normal, UV coordinates, and references to at least 3
-        # vertices. Each vertex also has a normal.
-        # Which normal is used depends on whether or not the face is "smooth".
-        # NOTE: tessfaces and tessface_uv_textures.active.data are parallel
-        # arrays
-        # For MD3:
-        # A face consists of references to three vertices.
-        # A vertex consists of a position, a normal, and a UV coordinate.
-        face = obj_mesh.polygons[face_index]
         ntri = MD3Triangle()
-        loop_end = face.loop_start + face.loop_total
-        # Faces shouldn't have more than 3 vertices, since the mesh is
-        # triangulated beforehand.
-        if face.loop_total > 3:
-            print("WARNING! Face %d is not a triangle!" % face_index)
-        for loop_iter_index, loop_index in enumerate(
-                range(face.loop_start, loop_end)):
+        if face_vertex_indices is None:
+            face_vertex_indices = range(3)
+        for iter_index, face_vertex_index in enumerate(face_vertex_indices):
             # Set up the new triangle
+            vertex_index = mesh_vertex_indices[face_vertex_index]
             # Get vertex ID, which is the vertex in MD3 binary format. First,
             # get the vertex position
-            vertex_index = obj_mesh.loops[loop_index].vertex_index
             vertex = obj_mesh.vertices[vertex_index]
             vertex_position = vertex.co
-            # Get vertex normal. If the face is flat-shaded, the face normal is
-            # used. Otherwise, the vertex normal is used.
-            normal_ref = "polygons"
+            # Set up vertex reference. If the face is flat-shaded, the face
+            # normal is used. Otherwise, the vertex normal is used.
+            normal_ref = "tessfaces"
             normal_index = face_index
-            if face.use_smooth:
-                if obj_mesh.has_custom_normals:
-                    # Get normal from loop
-                    normal_ref = "loops"
-                    normal_index = loop_index
-                else:
-                    # Get normal from vertex
-                    normal_ref = "vertices"
-                    normal_index = vertex_index
-            normal_object = getattr(obj_mesh, normal_ref)
-            vertex_normal = normal_object[normal_index].normal
+            normal_subref = None
+            normal_subindex = None
+            face = obj_mesh.tessfaces[face_index]
+            if use_custom_normals:
+                normal_subref = "split_normals"
+                normal_subindex = face_vertex_index
+            elif face.use_smooth:
+                # Get normal from vertex
+                normal_ref = "vertices"
+                normal_index = vertex_index
+            # Get the normal. If a custom normal is used, use the sub-reference
+            # to get the custom normal.
+            if use_custom_normals:
+                # The custom normal is in tessface.split_normals
+                normal_object = getattr(obj_mesh, normal_ref)[normal_index]
+                normal_object = getattr(normal_object, normal_subref)
+                vertex_normal = normal_object[normal_subindex][0:3]
+            else:
+                # No custom normals
+                normal_object = getattr(obj_mesh, normal_ref)
+                vertex_normal = normal_object[normal_index].normal
             # Get UV coordinates for this vertex.
-            vertex_uv = obj_mesh.uv_layers.active.data[loop_index].uv
+            face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index]
+            vertex_uv = face_uvs.uv[face_vertex_index]
             # Get ID from position, normal, and UV.
             vertex_id = BlenderModelManager.encode_vertex(
                 vertex_position, vertex_normal, vertex_uv, self.gzdoom)
@@ -617,13 +629,23 @@ class BlenderModelManager:
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
                 vert_refs = bsurface.vertex_refs.setdefault(obj_name, [])
                 vert_refs.append(VertexReference(
-                    vertex_index, normal_index, normal_ref))
+                    vertex_index,
+                    normal_ref, normal_index,
+                    normal_subref, normal_subindex
+                ))
             else:
                 # The vertex has already been added, so just get its index.
                 md3_vertex_index = bsurface.unique_vertices[vertex_id]
             # Set the vertex index on the triangle.
-            ntri.indexes[loop_iter_index] = md3_vertex_index
+            ntri.indexes[iter_index] = md3_vertex_index
         bsurface.surface.triangles.append(ntri)
+
+    def _add_quad(self, bsurface, obj_mesh, obj_name, face_index, face):
+        # Triangulate a quad
+        quad_tri_vertex_indices = [[0, 1, 2], [0, 2, 3]]
+        for triangle in quad_tri_vertex_indices:
+            self._add_tri(bsurface, obj_mesh, obj_name, face_index,
+                          face.vertices, obj_mesh.has_custom_normals, triangle)
 
     def setup_frames(self):
         from math import floor, log10
@@ -647,11 +669,12 @@ class BlenderModelManager:
                 obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
-                mesh_triangulate(obj_mesh)
-                if obj_mesh.has_custom_normals:
-                    obj_mesh.calc_normals_split()
+                # mesh_triangulate(obj_mesh)
+                obj_mesh.calc_normals_split()
+                obj_mesh.calc_tessface()
                 # Set up frame bounds/origin/radius
                 if not nframe_bounds_set:
+                    # Copy the vertex so that it isn't modified
                     nframe.mins = obj_mesh.vertices[0].co.copy()
                     nframe.maxs = obj_mesh.vertices[0].co.copy()
                     nframe_bounds_set = True
@@ -659,12 +682,16 @@ class BlenderModelManager:
                     if armature:
                         nframe.local_origin -= armature.location
                 for vertex in obj_mesh.vertices:
+                    # Check each coordinate individually so that the mins/maxs
+                    # form a bounding box around the geometry
+                    # First, check mins
                     if vertex.co[0] < nframe.mins[0]:
                         nframe.mins[0] = vertex.co[0]
                     if vertex.co[1] < nframe.mins[1]:
                         nframe.mins[1] = vertex.co[1]
                     if vertex.co[2] < nframe.mins[2]:
                         nframe.mins[2] = vertex.co[2]
+                    # Check maxs
                     if vertex.co[0] > nframe.maxs[0]:
                         nframe.maxs[0] = vertex.co[0]
                     if vertex.co[1] > nframe.maxs[1]:
@@ -679,12 +706,32 @@ class BlenderModelManager:
                 for mesh_name, vertex_infos in bsurface.vertex_refs.items():
                     obj_mesh = obj_meshes[mesh_name]
                     for vertex_info in vertex_infos:
-                        vertex_position = obj_mesh.vertices[vertex_info.vertex_index].co
-                        normal_object = getattr(obj_mesh, vertex_info.normal_ref)
-                        vertex_normal = normal_object[vertex_info.normal_index].normal
+                        # Get vertex position
+                        vertex_position = obj_mesh.vertices[
+                            vertex_info.vertex_index].co
+                        # Get vertex normal, using the sub-reference if
+                        # it is available
+                        normal_object = getattr(
+                            obj_mesh, vertex_info.normal_ref)
+                        if vertex_info.normal_subref is not None:
+                            # Get the object to sub-reference
+                            normal_object = normal_object[
+                                vertex_info.normal_index]
+                            # Use the sub-reference
+                            normal_object = getattr(
+                                normal_object, vertex_info.normal_subref)
+                            # Copy the data
+                            vertex_normal = normal_object[
+                                vertex_info.normal_subindex][0:3]
+                        else:
+                            # Get the data
+                            vertex_normal = normal_object[
+                                vertex_info.normal_index].normal
+                        # Set up MD3 vertex
                         nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
-                        nvertex.normal = MD3Vertex.encode(vertex_normal, self.gzdoom)
+                        nvertex.normal = MD3Vertex.encode(
+                            vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
             for obj_mesh in obj_meshes.values():
                 bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
