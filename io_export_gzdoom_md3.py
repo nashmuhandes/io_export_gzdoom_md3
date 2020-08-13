@@ -552,7 +552,7 @@ class BlenderModelManager:
             # Add the faces to the surface
             if len(face.vertices) == 3:
                 self._add_tri(bsurface, obj_mesh, mesh_obj.name, face_index,
-                              face.vertices, obj_mesh.has_custom_normals)
+                              face.vertices)
             elif len(face.vertices) == 4:
                 self._add_quad(bsurface, obj_mesh, mesh_obj.name, face_index,
                                face)
@@ -562,8 +562,7 @@ class BlenderModelManager:
         bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
-                 mesh_vertex_indices, use_custom_normals,
-                 face_vertex_indices=None):
+                 mesh_vertex_indices, face_vertex_indices=None):
         # Define VertexReference named tuple
         from collections import namedtuple
         VertexReference = namedtuple(
@@ -592,7 +591,7 @@ class BlenderModelManager:
             normal_subref = None
             normal_subindex = None
             face = obj_mesh.tessfaces[face_index]
-            if use_custom_normals:
+            if obj_mesh.has_custom_normals:
                 normal_subref = "split_normals"
                 normal_subindex = face_vertex_index
             elif face.use_smooth:
@@ -601,7 +600,7 @@ class BlenderModelManager:
                 normal_index = vertex_index
             # Get the normal. If a custom normal is used, use the sub-reference
             # to get the custom normal.
-            if use_custom_normals:
+            if obj_mesh.has_custom_normals:
                 # The custom normal is in tessface.split_normals
                 normal_object = getattr(obj_mesh, normal_ref)[normal_index]
                 normal_object = getattr(normal_object, normal_subref)
@@ -648,7 +647,7 @@ class BlenderModelManager:
         quad_tri_vertex_indices = [[0, 1, 2], [0, 2, 3]]
         for triangle in quad_tri_vertex_indices:
             self._add_tri(bsurface, obj_mesh, obj_name, face_index,
-                          face.vertices, obj_mesh.has_custom_normals, triangle)
+                          face.vertices, triangle)
 
     def setup_frames(self):
         from math import floor, log10
