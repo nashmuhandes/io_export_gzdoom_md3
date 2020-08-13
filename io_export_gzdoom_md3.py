@@ -532,7 +532,7 @@ class BlenderModelManager:
         obj_mesh.calc_tessface()
         # See what materials the mesh references, and add new surfaces for
         # those materials if necessary
-        for face_index, face in enumerate(obj_mesh.polygons):
+        for face_index, face in enumerate(obj_mesh.tessfaces):
             # Prefer using the md3shader property of the material. Use the
             # md3shader object property if the material does not have the
             # md3shader property, and use the material name if neither are
@@ -553,9 +553,12 @@ class BlenderModelManager:
             if len(face.vertices) == 3:
                 self._add_tri(bsurface, obj_mesh, mesh_obj.name, face_index,
                               face.vertices, obj_mesh.has_custom_normals)
-            else:
+            elif len(face.vertices) == 4:
                 self._add_quad(bsurface, obj_mesh, mesh_obj.name, face_index,
                                face)
+            else:
+                # Shouldn't happen; tessfaces have at most 4 vertices.
+                print("WARNING! This face has more than 4 vertices!")
         bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
