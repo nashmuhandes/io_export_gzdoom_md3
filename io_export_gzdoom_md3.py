@@ -562,7 +562,7 @@ class BlenderModelManager:
         bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
-                 mesh_vertex_indices, face_vertex_indices=None):
+                 mesh_vertex_indices, face_vertex_indices=range(3)):
         # Define VertexReference named tuple
         from collections import namedtuple
         VertexReference = namedtuple(
@@ -575,8 +575,6 @@ class BlenderModelManager:
             "normal_subref normal_subindex "
         )
         ntri = MD3Triangle()
-        if face_vertex_indices is None:
-            face_vertex_indices = range(3)
         for iter_index, face_vertex_index in enumerate(face_vertex_indices):
             # Set up the new triangle
             vertex_index = mesh_vertex_indices[face_vertex_index]
