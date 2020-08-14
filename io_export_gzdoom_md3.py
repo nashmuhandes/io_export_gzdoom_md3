@@ -855,7 +855,7 @@ def mesh_triangulate(me):
 
 # Main function
 def save_md3(settings):
-    from mathutils import Euler, Matrix, Vector
+    from mathutils import Matrix, Vector
     from math import radians
     starttime = time.clock()  # start timer
     fullpath = splitext(settings.savepath)[0]
@@ -883,9 +883,7 @@ def save_md3(settings):
     model.fix_transform *= Matrix.Scale(settings.scale, 4)
     model.fix_transform *= Matrix.Translation(Vector((
         settings.offsetx, settings.offsety, settings.offsetz)))
-    rotation_fix = Euler()
-    rotation_fix.z = radians(90)
-    model.fix_transform *= rotation_fix.to_matrix().to_4x4()
+    model.fix_transform *= Matrix.Rotation(radians(90), 4, 'Z')
     model.md3.name = settings.name
     # Add objects to model manager
     if len(bpy.context.selected_objects) == 0:
