@@ -519,10 +519,25 @@ class BlenderModelManager:
         self.scale = scale
         self.name = model_name
 
-    def save(self, filename):
+    def save(self, filename, modeldef=False, actordef=False):
+        from bpy.path import basename
+        from os.path import dirname, join
         nfile = open(filename, "wb")
         self.md3.save(nfile)
         nfile.close()
+        base_path = dirname(filename)
+        if modeldef:
+            modeldef_text = self.get_modeldef(basename(filename))
+            modeldef_path = join(base_path, "modeldef." + self.name + ".txt")
+            modeldef_file = open(modeldef_path, "w")
+            modeldef_file.write(modeldef_text)
+            modeldef_file.close()
+        if actordef:
+            actordef_text = self.get_zscript()
+            actordef_path = join(base_path, "zscript." + self.name + ".txt")
+            actordef_file = open(actordef_path, "w")
+            actordef_file.write(actordef_text)
+            actordef_file.close()
 
     @staticmethod
     def encode_vertex(position, normal, uv, gzdoom):
@@ -774,58 +789,60 @@ class BlenderModelManager:
 
     def get_modeldef(self, md3fname):
         model_def = """Model {actor_name}
-        {{
-            Model "{file_name}"
-            Scale {scale:.6f} {scale:.6f} {zscale:.6f}
-            USEACTORPITCH
-            USEACTORROLL
+{{
+    Model "{file_name}"
+    Scale {scale:.6f} {scale:.6f} {zscale:.6f}
+    USEACTORPITCH
+    USEACTORROLL
 
-            {frames}
-        }}"""
+    {frames}
+}}"""
         scale = 1
         if 0 < self.scale < 1:  # Upscale to normal size with MODELDEF
             scale = 1 / self.scale
         zscale = scale * 1.2  # Account for GZDoom's vertical squishing
         frame_def = (
             "FrameIndex {frame_name} {frame_letter} 0 {frame_number}")
-        modeldef_frames = ""
+        modeldef_frames = []
         frame_sprite = bytearray(self.frame_name, "ascii")
         while len(frame_sprite) < 5:
             frame_sprite.append(ord("A"))
         for frame in range(self.frame_count):
             frame_text = frame_sprite.decode()
-            modeldef_frames += frame_def.format(
+            modeldef_frames.append(frame_def.format(
                 frame_name=frame_text[0:4], frame_letter=frame_text[4],
-                frame_number=frame)
+                frame_number=frame))
             sprite_index = Base26.encode(frame_sprite) + 1
             frame_sprite = Base26.decode(sprite_index, 5)
         return model_def.format(
             actor_name=self.name, file_name=md3fname, scale=scale,
-            zscale=zscale, frames=modeldef_frames)
+            zscale=zscale, frames="\n    ".join(modeldef_frames))
 
     def get_zscript(self):
         actor_def = """Class {actor_name} : Actor
-        {{
-            States
-            {{
-            Spawn:
-                {frames}
-                Stop;
-            }}
-        }}"""
+{{
+    States
+    {{
+    Spawn:
+        {frames}
+        Stop;
+    }}
+}}"""
         frame_def = "{frame_name} {frame_letter} {tics};"
         frame_sprite = bytearray(self.frame_name, "ascii")
         while len(frame_sprite) < 5:
             frame_sprite.append(ord("A"))
-        frames = ""
-        for frame in self.frame_count:
+        frames = []
+        for frame in range(self.frame_count):
             frame_text = frame_sprite.decode()
-            frames += frame_def.format(
+            frames.append(frame_def.format(
                 frame_name=frame_text[0:4], frame_letter=frame_text[4],
-                tics=self.frame_time)
+                tics=self.frame_time))
             sprite_index = Base26.encode(frame_sprite) + 1
             frame_sprite = Base26.decode(sprite_index, 5)
-        return actor_def.format(actor_name=self.name, frames=frames)
+        return actor_def.format(
+            actor_name=self.name,
+            frames="\n        ".join(frames))
 
 
 class Base26:
@@ -1002,7 +1019,7 @@ def save_md3(settings):
     model.setup_frames()
     model.md3.get_size()
     print_md3(log, model.md3, dumpall)
-    model.save(settings.savepath)
+    model.save(settings.savepath, settings.modeldef, settings.zscript)
     endtime = time.clock() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
 
