@@ -503,7 +503,7 @@ class BlenderModelManager:
             self.ref_frame = ref_frame
         else:
             self.ref_frame = self.start_frame
-        self.frame_name = frame_name
+        self.frame_name = frame_name[0:4]
         self.scale = scale
         self.name = model_name
 
@@ -1002,9 +1002,9 @@ class ExportMD3(bpy.types.Operator):
     bl_label = 'Export MD3'
 
     logenum = [
-        ("console","Console","log to console"),
-        ("append","Append","append to log file"),
-        ("overwrite","Overwrite","overwrite log file"),
+        ("console","Console","Log to console"),
+        ("append","Append","Append to log file"),
+        ("overwrite","Overwrite","Overwrite log file"),
         ("blender","Blender internal text","Write log to Blender text data block")
     ]
 
@@ -1062,6 +1062,40 @@ class ExportMD3(bpy.types.Operator):
         description="Export the model for GZDoom; Fixes normals pointing "
             "straight up or straight down for when GZDoom displays the model",
         default=True)
+    md3genmodeldef = BoolProperty(
+        name="Generate Modeldef",
+        description="Generate a Modeldef.txt file for the model. The filename "
+            "will be modeldef.modelname.txt",
+        default=False)
+    md3genactordef = BoolProperty(
+        name="Generate ZScript",
+        description="Generate a ZScript actor definition for the model. The "
+            "filename will be zscript.modelname.txt",
+        default=False)
+    md3framename = StringProperty(
+        name="Frame name",
+        description="Initial name to use for the actor sprite frames",
+        default="MDLA")
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.prop(self, "md3name")
+        row = col.row()
+        row.prop(self, "md3logtype", "Log")
+        row.prop(self, "md3dumpall")
+        col.prop(self, "md3scale")
+        col.label("Offset:")
+        row = col.row()
+        row.prop(self, "md3offsetx", "X")
+        row.prop(self, "md3offsety", "Y")
+        row.prop(self, "md3offsetz", "Z")
+        col.prop(self, "md3refframe")
+        col.prop(self, "md3forgzdoom")
+        col.prop(self, "md3genactordef")
+        col.prop(self, "md3genmodeldef")
+        if self.properties.md3genactordef or self.properties.md3genmodeldef:
+            col.prop(self, "md3framename")
 
     def execute(self, context):
         settings = MD3Settings(savepath=self.properties.filepath,
