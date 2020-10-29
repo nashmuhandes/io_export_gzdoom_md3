@@ -513,8 +513,9 @@ class BlenderModelManager:
         else:
             self.ref_frame = self.start_frame
         self.frame_name = frame_name[0:4]
-        frame_tics = tics_per_second / bpy.context.scene.render.fps
-        self.frame_time = floor(max(frame_time, 1, frame_tics))
+        if frame_time == 0:
+            frame_time = 35 / bpy.context.scene.render.fps
+        self.frame_time = floor(max(frame_time, 1))
         self.scale = scale
         self.name = model_name
 
@@ -813,7 +814,6 @@ class BlenderModelManager:
             }}
         }}"""
         frame_def = "{frame_name} {frame_letter} {tics};"
-        tics_per_second = 35
         frame_sprite = bytearray(self.frame_name, "ascii")
         while len(frame_sprite) < 5:
             frame_sprite.append(ord("A"))
@@ -1092,11 +1092,10 @@ class ExportMD3(bpy.types.Operator):
         name="Frame duration",
         description="How long each frame should last. If 0, frame duration is "
             "calculated based on scene FPS",
-        default=0,
-        hard_min=0,
-        soft_min=0)
+        default=0, min=0, soft_min=0)
 
     def draw(self, context):
+        from math import floor
         layout = self.layout
         col = layout.column()
         col.prop(self, "md3name")
@@ -1117,6 +1116,14 @@ class ExportMD3(bpy.types.Operator):
             col.prop(self, "md3framename")
         if self.properties.md3genactordef:
             col.prop(self, "md3frametime")
+            frame_time = self.properties.md3frametime
+            if frame_time == 0:
+                frame_time = max(1, floor(35 / context.scene.render.fps))
+            fps = 35 / frame_time
+            frame_count = context.scene.frame_end - context.scene.frame_start
+            total = frame_time * frame_count
+            stats = "{0:.3f} fps, {2} frames, {1} total".format(fps, total, frame_count)
+            col.label(stats)
 
     def execute(self, context):
         settings = MD3Settings(savepath=self.properties.filepath,
