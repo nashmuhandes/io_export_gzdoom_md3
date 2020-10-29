@@ -34,6 +34,7 @@ import bpy, struct, math, time
 from os.path import basename, splitext
 from collections import OrderedDict
 from struct import pack
+from mathutils import Matrix, Vector
 
 ##### User options: Exporter default settings
 default_logtype = 'console' ## console, overwrite, append
@@ -485,9 +486,10 @@ class BlenderSurface:
 # A class to help manage a model, which consists of one or more objects which
 # may be fused together into one model
 class BlenderModelManager:
-    def __init__(self, gzdoom, ref_frame = None):
-        from mathutils import Matrix
+    def __init__(self, gzdoom, model_name, ref_frame=None, frame_name="MDLA",
+                 scale=1):
         self.md3 = MD3Object()
+        self.md3.name = model_name
         self.material_surfaces = OrderedDict()
         self.mesh_objects = []
         self.fix_transform = Matrix.Identity(4)
@@ -501,6 +503,9 @@ class BlenderModelManager:
             self.ref_frame = ref_frame
         else:
             self.ref_frame = self.start_frame
+        self.frame_name = frame_name
+        self.scale = scale
+        self.name = model_name
 
     def save(self, filename):
         nfile = open(filename, "wb")
@@ -642,6 +647,13 @@ class BlenderModelManager:
 
     def _add_quad(self, bsurface, obj_mesh, obj_name, face_index, face):
         # Triangulate a quad
+        # 0-----3
+        # |\    |
+        # | \   |
+        # |  \  |
+        # |   \ |
+        # |    \|
+        # 1-----2
         quad_tri_vertex_indices = [[0, 1, 2], [0, 2, 3]]
         for triangle in quad_tri_vertex_indices:
             self._add_tri(bsurface, obj_mesh, obj_name, face_index,
@@ -669,7 +681,6 @@ class BlenderModelManager:
                 obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
-                # mesh_triangulate(obj_mesh)
                 obj_mesh.calc_normals_split()
                 obj_mesh.calc_tessface()
                 # Set up frame bounds/origin/radius
@@ -748,6 +759,98 @@ class BlenderModelManager:
         ntag.axis[3:6] = orientation[1]
         ntag.axis[6:9] = orientation[2]
         self.md3.tags.append(ntag)
+
+    def get_modeldef(self, md3fname):
+        model_def = """Model {actor_name}
+        {{
+            Model "{file_name}"
+            Scale {scale:.6f} {scale:.6f} {zscale:.6f}
+            USEACTORPITCH
+            USEACTORROLL
+
+            {frames}
+        }}"""
+        scale = 1
+        if 0 < self.scale < 1:  # Upscale to normal size with MODELDEF
+            scale = 1 / self.scale
+        zscale = scale * 1.2  # Account for GZDoom's vertical squishing
+        frame_def = (
+            "FrameIndex {frame_name} {frame_letter} 0 {frame_number}")
+        modeldef_frames = ""
+        frame_sprite = bytearray(self.frame_name, "ascii")
+        while len(frame_sprite) < 5:
+            frame_sprite.append(ord("A"))
+        for frame in range(self.frame_count):
+            frame_text = frame_sprite.decode()
+            modeldef_frames += frame_def.format(
+                frame_name=frame_text[0:4], frame_letter=frame_text[4],
+                frame_number=frame)
+            sprite_index = Base26.encode(frame_sprite) + 1
+            frame_sprite = Base26.decode(sprite_index, 5)
+        return model_def.format(
+            actor_name=self.name, file_name=md3fname, scale=scale,
+            zscale=zscale, frames=modeldef_frames)
+
+    def get_zscript(self):
+        actor_def = """Class {actor_name} : Actor
+        {{
+            States
+            {{
+            Spawn:
+                {frames}
+                Stop;
+            }}
+        }}"""
+        frame_def = "{frame_name} {frame_letter} {tics};"
+        tics_per_second = 35
+        frame_sprite = bytearray(self.frame_name, "ascii")
+        while len(frame_sprite) < 5:
+            frame_sprite.append(ord("A"))
+        frame_tics = max(1, tics_per_second / bpy.context.scene.render.fps)
+        frames = ""
+        for frame in self.frame_count:
+            frame_text = frame_sprite.decode()
+            frames += frame_def.format(
+                frame_name=frame_text[0:4], frame_letter=frame_text[4],
+                tics=frame_tics)
+            sprite_index = Base26.encode(frame_sprite) + 1
+            frame_sprite = Base26.decode(sprite_index, 5)
+        return actor_def.format(actor_name=self.name, frames=frames)
+
+
+class Base26:
+    # Class that is useful for encoding and decoding base26 numbers. Such
+    # numbers are used as sprite names for the Doom engine.
+
+    @staticmethod
+    def encode(text):
+        # Encode a base26 number. Takes a bytes-like object, returns the number.
+        first = 65  # ord("A")
+        upcase = 32  # ord("a") - ord("A")
+        lowercase = 97  # ord("a")
+        number = 0
+        for index, char in enumerate(reversed(text)):
+            if char >= lowercase: char -= upcase
+            number += (26 ** index) * (char - first)
+        return number
+
+    @staticmethod
+    def decode(number, minlength=1):
+        # Decode a base26 number. Takes a number, returns the text.
+        from math import log, floor
+        first = ord("A")
+        try:
+            digits = floor(log(number, 26)) + 1
+        except ValueError:
+            digits = 1
+        minlength = max(minlength, digits)
+        text = bytearray(minlength)
+        for index in range(minlength):
+            text[index] = first
+        for index, byteindex in enumerate(reversed(range(digits))):
+            byteindex += minlength - digits
+            text[byteindex] = floor(number / 26 ** index) % 26 + first
+        return text
 
 
 def print_md3(log,md3,dumpall):
@@ -844,18 +947,8 @@ def print_md3(log,md3,dumpall):
     message(log,"Total Triangles: " + str(tri_count))
     message(log,"Total Vertices: " + str(vert_count))
 
-# Copied from Blender 2.79 scripts/addons/io_scene_obj/export_obj.py
-def mesh_triangulate(me):
-    import bmesh
-    bm = bmesh.new()
-    bm.from_mesh(me)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
-    bm.to_mesh(me)
-    bm.free()
-
 # Main function
 def save_md3(settings):
-    from mathutils import Matrix, Vector
     from math import radians
     starttime = time.clock()  # start timer
     fullpath = splitext(settings.savepath)[0]
@@ -878,13 +971,12 @@ def save_md3(settings):
     if settings.refframe == -1:
         ref_frame = bpy.context.scene.frame_current
     message(log, "###################### BEGIN ######################")
-    model = BlenderModelManager(settings.gzdoom, ref_frame)
+    model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame)
     # Set up fix transformation matrix
     model.fix_transform *= Matrix.Scale(settings.scale, 4)
     model.fix_transform *= Matrix.Translation(Vector((
         settings.offsetx, settings.offsety, settings.offsetz)))
     model.fix_transform *= Matrix.Rotation(radians(90), 4, 'Z')
-    model.md3.name = settings.name
     # Add objects to model manager
     if len(bpy.context.selected_objects) == 0:
         message(log, "Select an object to export!")
