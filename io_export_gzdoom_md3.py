@@ -419,7 +419,11 @@ class MD3Settings:
                  offsety=0.0,
                  offsetz=0.0,
                  refframe=0,
-                 gzdoom=True):
+                 gzdoom=True,
+                 modeldef=False,
+                 zscript=False,
+                 framename="MDLA",
+                 frametime=0):
         self.savepath = savepath
         self.name = name
         self.logtype = logtype
@@ -430,6 +434,10 @@ class MD3Settings:
         self.offsetz = offsetz
         self.refframe = refframe
         self.gzdoom = gzdoom
+        self.modeldef = modeldef
+        self.zscript = zscript
+        self.framename = framename
+        self.frametime = frametime
 
 
 # Convert a XYZ vector to an integer vector for conversion to MD3
@@ -487,7 +495,8 @@ class BlenderSurface:
 # may be fused together into one model
 class BlenderModelManager:
     def __init__(self, gzdoom, model_name, ref_frame=None, frame_name="MDLA",
-                 scale=1):
+                 scale=1, frame_time=0):
+        from math import floor
         self.md3 = MD3Object()
         self.md3.name = model_name
         self.material_surfaces = OrderedDict()
@@ -504,6 +513,8 @@ class BlenderModelManager:
         else:
             self.ref_frame = self.start_frame
         self.frame_name = frame_name[0:4]
+        frame_tics = tics_per_second / bpy.context.scene.render.fps
+        self.frame_time = floor(max(frame_time, 1, frame_tics))
         self.scale = scale
         self.name = model_name
 
@@ -806,13 +817,12 @@ class BlenderModelManager:
         frame_sprite = bytearray(self.frame_name, "ascii")
         while len(frame_sprite) < 5:
             frame_sprite.append(ord("A"))
-        frame_tics = max(1, tics_per_second / bpy.context.scene.render.fps)
         frames = ""
         for frame in self.frame_count:
             frame_text = frame_sprite.decode()
             frames += frame_def.format(
                 frame_name=frame_text[0:4], frame_letter=frame_text[4],
-                tics=frame_tics)
+                tics=self.frame_time)
             sprite_index = Base26.encode(frame_sprite) + 1
             frame_sprite = Base26.decode(sprite_index, 5)
         return actor_def.format(actor_name=self.name, frames=frames)
@@ -971,7 +981,9 @@ def save_md3(settings):
     if settings.refframe == -1:
         ref_frame = bpy.context.scene.frame_current
     message(log, "###################### BEGIN ######################")
-    model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame)
+    model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame,
+                                settings.framename, settings.scale,
+                                settings.frametime)
     # Set up fix transformation matrix
     model.fix_transform *= Matrix.Scale(settings.scale, 4)
     model.fix_transform *= Matrix.Translation(Vector((
@@ -1076,6 +1088,13 @@ class ExportMD3(bpy.types.Operator):
         name="Frame name",
         description="Initial name to use for the actor sprite frames",
         default="MDLA")
+    md3frametime = IntProperty(
+        name="Frame duration",
+        description="How long each frame should last. If 0, frame duration is "
+            "calculated based on scene FPS",
+        default=0,
+        hard_min=0,
+        soft_min=0)
 
     def draw(self, context):
         layout = self.layout
@@ -1096,6 +1115,8 @@ class ExportMD3(bpy.types.Operator):
         col.prop(self, "md3genmodeldef")
         if self.properties.md3genactordef or self.properties.md3genmodeldef:
             col.prop(self, "md3framename")
+        if self.properties.md3genactordef:
+            col.prop(self, "md3frametime")
 
     def execute(self, context):
         settings = MD3Settings(savepath=self.properties.filepath,
@@ -1107,7 +1128,11 @@ class ExportMD3(bpy.types.Operator):
                                offsety=self.properties.md3offsety,
                                offsetz=self.properties.md3offsetz,
                                refframe=self.properties.md3refframe,
-                               gzdoom=self.properties.md3forgzdoom)
+                               gzdoom=self.properties.md3forgzdoom,
+                               modeldef=self.properties.md3genmodeldef,
+                               zscript=self.properties.md3genactordef,
+                               framename=self.properties.md3framename,
+                               frametime=self.properties.md3frametime)
         save_md3(settings)
         return {'FINISHED'}
 
