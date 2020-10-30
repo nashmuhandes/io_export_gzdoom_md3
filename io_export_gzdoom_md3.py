@@ -1139,7 +1139,7 @@ class ExportMD3(bpy.types.Operator):
             fps = 35 / frame_time
             frame_count = context.scene.frame_end - context.scene.frame_start
             total = frame_time * frame_count
-            stats = "{0:.3f} fps, {2} frames, {1} total".format(fps, total, frame_count)
+            stats = "{0:.3f} fps, {2} frames, {1} total tics".format(fps, total, frame_count)
             col.label(stats)
 
     def execute(self, context):
