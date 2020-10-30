@@ -819,7 +819,7 @@ class BlenderModelManager:
             zscale=zscale, frames="\n    ".join(modeldef_frames))
 
     def get_zscript(self):
-        actor_def = """Class {actor_name} : Actor
+        actor_def = """class {actor_name} : Actor
 {{
     States
     {{
@@ -865,7 +865,7 @@ class Base26:
     def decode(number, minlength=1):
         # Decode a base26 number. Takes a number, returns the text.
         from math import log, floor
-        first = ord("A")
+        first = 65 # ord("A")
         try:
             digits = floor(log(number, 26)) + 1
         except ValueError:
