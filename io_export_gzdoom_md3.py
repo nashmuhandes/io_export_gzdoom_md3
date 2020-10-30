@@ -806,7 +806,7 @@ class BlenderModelManager:
         modeldef_frames = []
         frame_sprite = bytearray(self.frame_name, "ascii")
         while len(frame_sprite) < 5:
-            frame_sprite.append(ord("A"))
+            frame_sprite.append(65) # ord("A")
         for frame in range(self.frame_count):
             frame_text = frame_sprite.decode()
             modeldef_frames.append(frame_def.format(
@@ -831,7 +831,7 @@ class BlenderModelManager:
         frame_def = "{frame_name} {frame_letter} {tics};"
         frame_sprite = bytearray(self.frame_name, "ascii")
         while len(frame_sprite) < 5:
-            frame_sprite.append(ord("A"))
+            frame_sprite.append(65) # ord("A")
         frames = []
         for frame in range(self.frame_count):
             frame_text = frame_sprite.decode()
