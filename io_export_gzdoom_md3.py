@@ -779,7 +779,7 @@ class BlenderModelManager:
         position = bobject.location.copy()
         position = self.fix_transform * position
         orientation = bobject.matrix_world.to_3x3().normalize()
-        orientation = fix_transform.to_3x3() * orientation
+        orientation = self.fix_transform.to_3x3() * orientation
         ntag = MD3Tag()
         ntag.origin = position
         ntag.axis[0:3] = orientation[0]
@@ -797,6 +797,8 @@ class BlenderModelManager:
 
     {frames}
 }}"""
+        sprite_coder = BaseCoder(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_")
+        frame_coder = BaseCoder(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]")
         scale = 1
         if 0 < self.scale < 1:  # Upscale to normal size with MODELDEF
             scale = 1 / self.scale
@@ -804,16 +806,17 @@ class BlenderModelManager:
         frame_def = (
             "FrameIndex {frame_name} {frame_letter} 0 {frame_number}")
         modeldef_frames = []
-        frame_sprite = bytearray(self.frame_name, "ascii")
-        while len(frame_sprite) < 5:
-            frame_sprite.append(65) # ord("A")
+        frame_base_sprite = bytearray(self.frame_name, "ascii")
+        while len(frame_base_sprite) < 4:
+            frame_base_sprite.append(65) # ord("A")
         for frame in range(self.frame_count):
-            frame_text = frame_sprite.decode()
+            frame_letter = chr(frame_coder.alphabet[frame % frame_coder.base])
+            frame_add = frame // frame_coder.base
+            frame_num = sprite_coder.encode(frame_base_sprite) + frame_add
+            frame_sprite = sprite_coder.decode(frame_num, 4)
             modeldef_frames.append(frame_def.format(
-                frame_name=frame_text[0:4], frame_letter=frame_text[4],
+                frame_name=frame_sprite.decode(), frame_letter=frame_letter,
                 frame_number=frame))
-            sprite_index = Base26.encode(frame_sprite) + 1
-            frame_sprite = Base26.decode(sprite_index, 5)
         return model_def.format(
             actor_name=self.name, file_name=md3fname, scale=scale,
             zscale=zscale, frames="\n    ".join(modeldef_frames))
@@ -828,55 +831,56 @@ class BlenderModelManager:
         Stop;
     }}
 }}"""
+        sprite_coder = BaseCoder(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_")
+        frame_coder = BaseCoder(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]")
         frame_def = "{frame_name} {frame_letter} {tics};"
-        frame_sprite = bytearray(self.frame_name, "ascii")
-        while len(frame_sprite) < 5:
-            frame_sprite.append(65) # ord("A")
+        frame_base_sprite = bytearray(self.frame_name, "ascii")
+        while len(frame_base_sprite) < 4:
+            frame_base_sprite.append(65) # ord("A")
         frames = []
         for frame in range(self.frame_count):
-            frame_text = frame_sprite.decode()
+            frame_letter = chr(frame_coder.alphabet[frame % frame_coder.base])
+            frame_add = frame // frame_coder.base
+            frame_num = sprite_coder.encode(frame_base_sprite) + frame_add
+            frame_sprite = sprite_coder.decode(frame_num, 4)
             frames.append(frame_def.format(
-                frame_name=frame_text[0:4], frame_letter=frame_text[4],
+                frame_name=frame_sprite.decode(), frame_letter=frame_letter,
                 tics=self.frame_time))
-            sprite_index = Base26.encode(frame_sprite) + 1
-            frame_sprite = Base26.decode(sprite_index, 5)
         return actor_def.format(
             actor_name=self.name,
             frames="\n        ".join(frames))
 
 
-class Base26:
+class BaseCoder:
     # Class that is useful for encoding and decoding base26 numbers. Such
     # numbers are used as sprite names for the Doom engine.
 
-    @staticmethod
-    def encode(text):
-        # Encode a base26 number. Takes a bytes-like object, returns the number.
-        first = 65  # ord("A")
-        upcase = 32  # ord("a") - ord("A")
-        lowercase = 97  # ord("a")
+    def __init__(self, alphabet):
+        self.alphabet = alphabet
+        self.base = len(alphabet)
+
+    def encode(self, text):
+        "Encode a base26 number. Takes a bytes-like object, returns the number."
         number = 0
         for index, char in enumerate(reversed(text)):
-            if char >= lowercase: char -= upcase
-            number += (26 ** index) * (char - first)
+            char_value = self.alphabet.index(char)
+            number += (self.base ** index) * char_value
         return number
 
-    @staticmethod
-    def decode(number, minlength=1):
-        # Decode a base26 number. Takes a number, returns the text.
+    def decode(self, number, minlength=1):
+        "Decode a base26 number. Takes a number, returns the text."
         from math import log, floor
-        first = 65 # ord("A")
         try:
-            digits = floor(log(number, 26)) + 1
+            digits = floor(log(number, self.base)) + 1
         except ValueError:
             digits = 1
-        minlength = max(minlength, digits)
-        text = bytearray(minlength)
-        for index in range(minlength):
-            text[index] = first
-        for index, byteindex in enumerate(reversed(range(digits))):
-            byteindex += minlength - digits
-            text[byteindex] = floor(number / 26 ** index) % 26 + first
+        length = max(minlength, digits)
+        text = bytearray(length)
+        for index in range(length):
+            text[index] = self.alphabet[0]
+        for index, byteindex in enumerate(reversed(range(length))):
+            alphabet_index = floor(number / self.base ** index) % self.base
+            text[byteindex] = self.alphabet[alphabet_index]
         return text
 
 
