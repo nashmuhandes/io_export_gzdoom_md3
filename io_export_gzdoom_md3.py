@@ -790,7 +790,7 @@ class BlenderModelManager:
     def get_modeldef(self, md3fname):
         model_def = """Model {actor_name}
 {{
-    Model "{file_name}"
+    Model 0 "{file_name}"
     Scale {scale:.6f} {scale:.6f} {zscale:.6f}
     USEACTORPITCH
     USEACTORROLL
