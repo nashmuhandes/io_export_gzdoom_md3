@@ -16,13 +16,14 @@
 #
 # ***** END GPL LICENCE BLOCK *****
 #
-#Updates and additions for Blender 2.6X by Derek McPherson
+# Updates and additions for Blender 2.6X by Derek McPherson
+# Updates for Blender 2.9 by Kevin Caccamo
 #
 bl_info = {
         "name": "GZDoom .MD3",
         "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Mexicouger, Nash Muhandes, Kevin Caccamo",
-        "version": (1, 6, 4), # 24th of August 2012 - Mexicouger
-        "blender": (2, 6, 3),
+        "version": (2, 0, 0),
+        "blender": (2, 90, 0),
         "location": "File > Export > GZDoom model (.md3)",
         "description": "Export mesh to GZDoom model with vertex animation (.md3)",
         "warning": "",
@@ -423,7 +424,8 @@ class MD3Settings:
                  modeldef=False,
                  zscript=False,
                  framename="MDLA",
-                 frametime=0):
+                 frametime=0,
+                 depsgraph=None):
         self.savepath = savepath
         self.name = name
         self.logtype = logtype
@@ -438,6 +440,7 @@ class MD3Settings:
         self.zscript = zscript
         self.framename = framename
         self.frametime = frametime
+        self.depsgraph = depsgraph
 
 
 # Convert a XYZ vector to an integer vector for conversion to MD3
@@ -445,7 +448,7 @@ def convert_xyz(xyz):
     from math import floor
     def convert(number, factor):
         return floor(number * factor)
-    factors = [MD3_XYZ_SCALE] * 3
+    factors = [MD3_XYZ_SCALE] * len(xyz)
     position = map(convert, xyz, factors)
     return tuple(map(int, position))
 
@@ -476,26 +479,11 @@ class BlenderSurface:
         return self.surface.get_size()
 
 
-# Code to be used in a future Blender 2.80 port?
-#from collections import namedtuple
-
-#FaceVertex = namedtuple("FaceVertex", "face vertex")
-#face_vertex_uvs = {}
-
-#current_offset = 0
-#for polygon in mesh.polygons:
-    #for loop_index in range(polygon.loop_total):
-        #loop_vertex = mesh.loops[polygon.loop_start + loop_index].vertex_index
-        #face_vertex = FaceVertex(polygon.index, loop_vertex)
-        #face_vertex_uvs[face_vertex] = mesh.uv_layers.active.data[current_offset]
-        #current_offset += 1
-
-
 # A class to help manage a model, which consists of one or more objects which
 # may be fused together into one model
 class BlenderModelManager:
     def __init__(self, gzdoom, model_name, ref_frame=None, frame_name="MDLA",
-                 scale=1, frame_time=0):
+                 scale=1, frame_time=0, depsgraph=None):
         from math import floor
         self.md3 = MD3Object()
         self.md3.name = model_name
@@ -518,6 +506,7 @@ class BlenderModelManager:
         self.frame_time = floor(max(frame_time, 1))
         self.scale = scale
         self.name = model_name
+        self.depsgraph = depsgraph
 
     def save(self, filename, modeldef=False, actordef=False):
         from bpy.path import basename
@@ -555,16 +544,16 @@ class BlenderModelManager:
             return
         self.mesh_objects.append(mesh_obj)
         bpy.context.scene.frame_set(self.ref_frame)
-        obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
+        obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
         obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
         # calc_normals_split recalculates normals, even on meshes without
         # custom normals. If I didn't do this, the vertex normals would be all
         # wrong.
         obj_mesh.calc_normals_split()
-        obj_mesh.calc_tessface()
+        obj_mesh.calc_loop_triangles()
         # See what materials the mesh references, and add new surfaces for
         # those materials if necessary
-        for face_index, face in enumerate(obj_mesh.tessfaces):
+        for face_index, face in enumerate(obj_mesh.loop_triangles):
             # Prefer using the md3shader property of the material. Use the
             # md3shader object property if the material does not have the
             # md3shader property, and use the material name if neither are
@@ -582,15 +571,7 @@ class BlenderModelManager:
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
             # Add the faces to the surface
-            if len(face.vertices) == 3:
-                self._add_tri(bsurface, obj_mesh, mesh_obj.name, face_index,
-                              face.vertices)
-            elif len(face.vertices) == 4:
-                self._add_quad(bsurface, obj_mesh, mesh_obj.name, face_index,
-                               face)
-            else:
-                # Shouldn't happen; tessfaces have at most 4 vertices.
-                print("WARNING! This face has more than 4 vertices!")
+            self._add_tri(bsurface, obj_mesh, mesh_obj.name, face_index, face.vertices)
         bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
@@ -599,12 +580,7 @@ class BlenderModelManager:
         from collections import namedtuple
         VertexReference = namedtuple(
             "VertexReference",
-            "vertex_index "
-            # normal = getattr(obj, normal_ref)[normal_index]
-            "normal_ref normal_index "
-            # normal_obj = getattr(obj, normal_ref)[normal_index]
-            # normal = getattr(normal_obj, normal_subref)[normal_subindex]
-            "normal_subref normal_subindex "
+            "vertex_index normal_index"
         )
         ntri = MD3Triangle()
         for iter_index, face_vertex_index in enumerate(face_vertex_indices):
@@ -614,34 +590,19 @@ class BlenderModelManager:
             # get the vertex position
             vertex = obj_mesh.vertices[vertex_index]
             vertex_position = vertex.co
-            # Set up vertex reference. If the face is flat-shaded, the face
-            # normal is used. Otherwise, the vertex normal is used.
-            normal_ref = "tessfaces"
-            normal_index = face_index
-            normal_subref = None
-            normal_subindex = None
-            face = obj_mesh.tessfaces[face_index]
-            if obj_mesh.has_custom_normals:
-                normal_subref = "split_normals"
-                normal_subindex = face_vertex_index
-            elif face.use_smooth:
-                # Get normal from vertex
-                normal_ref = "vertices"
-                normal_index = vertex_index
-            # Get the normal. If a custom normal is used, use the sub-reference
-            # to get the custom normal.
-            if obj_mesh.has_custom_normals:
-                # The custom normal is in tessface.split_normals
-                normal_object = getattr(obj_mesh, normal_ref)[normal_index]
-                normal_object = getattr(normal_object, normal_subref)
-                vertex_normal = normal_object[normal_subindex][0:3]
+            # If the face is flat-shaded, the face normal is used.
+            # Otherwise, the vertex normal is used.
+            loop_index = face.loops[face_vertex_index]
+            face = obj_mesh.loop_triangles[face_index]
+            normal_index = loop_index
+            if face.use_smooth:
+                vertex_normal = obj_mesh.loops[normal_index].normal
             else:
-                # No custom normals
-                normal_object = getattr(obj_mesh, normal_ref)
-                vertex_normal = normal_object[normal_index].normal
+                vertex_normal = face.normal
+                normal_index = -1
             # Get UV coordinates for this vertex.
-            face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index]
-            vertex_uv = face_uvs.uv[face_vertex_index]
+            face_uvs = obj_mesh.uv_layers.active.data[loop_index]
+            vertex_uv = face_uvs.uv
             # Get ID from position, normal, and UV.
             vertex_id = BlenderModelManager.encode_vertex(
                 vertex_position, vertex_normal, vertex_uv, self.gzdoom)
@@ -661,9 +622,7 @@ class BlenderModelManager:
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
                 vert_refs = bsurface.vertex_refs.setdefault(obj_name, [])
                 vert_refs.append(VertexReference(
-                    vertex_index,
-                    normal_ref, normal_index,
-                    normal_subref, normal_subindex
+                    vertex_index, normal_index
                 ))
             else:
                 # The vertex has already been added, so just get its index.
@@ -671,20 +630,6 @@ class BlenderModelManager:
             # Set the vertex index on the triangle.
             ntri.indexes[iter_index] = md3_vertex_index
         bsurface.surface.triangles.append(ntri)
-
-    def _add_quad(self, bsurface, obj_mesh, obj_name, face_index, face):
-        # Triangulate a quad
-        # 0-----3
-        # |\    |
-        # | \   |
-        # |  \  |
-        # |   \ |
-        # |    \|
-        # 1-----2
-        quad_tri_vertex_indices = [[0, 1, 2], [0, 2, 3]]
-        for triangle in quad_tri_vertex_indices:
-            self._add_tri(bsurface, obj_mesh, obj_name, face_index,
-                          face.vertices, triangle)
 
     def setup_frames(self):
         from math import floor, log10
@@ -709,7 +654,7 @@ class BlenderModelManager:
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
                 obj_mesh.calc_normals_split()
-                obj_mesh.calc_tessface()
+                obj_mesh.calc_loop_triangles()
                 # Set up frame bounds/origin/radius
                 if not nframe_bounds_set:
                     # Copy the vertex so that it isn't modified
@@ -749,22 +694,9 @@ class BlenderModelManager:
                             vertex_info.vertex_index].co
                         # Get vertex normal, using the sub-reference if
                         # it is available
-                        normal_object = getattr(
-                            obj_mesh, vertex_info.normal_ref)
-                        if vertex_info.normal_subref is not None:
-                            # Get the object to sub-reference
-                            normal_object = normal_object[
-                                vertex_info.normal_index]
-                            # Use the sub-reference
-                            normal_object = getattr(
-                                normal_object, vertex_info.normal_subref)
-                            # Copy the data
-                            vertex_normal = normal_object[
-                                vertex_info.normal_subindex][0:3]
-                        else:
-                            # Get the data
-                            vertex_normal = normal_object[
-                                vertex_info.normal_index].normal
+                        loop_index = vertex_info.normal_index
+                        if vertex_info.normal_index >= 0:
+                            vertex_normal = obj_mesh.loops[loop_index].normal
                         # Set up MD3 vertex
                         nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
@@ -860,7 +792,7 @@ class BaseCoder:
         self.base = len(alphabet)
 
     def encode(self, text):
-        "Encode a base26 number. Takes a bytes-like object, returns the number."
+        "Encode a number with an arbitrary base. Takes a bytes-like object, " "returns the number."
         number = 0
         for index, char in enumerate(reversed(text)):
             char_value = self.alphabet.index(char)
@@ -868,7 +800,7 @@ class BaseCoder:
         return number
 
     def decode(self, number, minlength=1):
-        "Decode a base26 number. Takes a number, returns the text."
+        "Decode a number with an arbitrary base. Takes a number, returns the " "text."
         from math import log, floor
         try:
             digits = floor(log(number, self.base)) + 1
@@ -1004,7 +936,7 @@ def save_md3(settings):
     message(log, "###################### BEGIN ######################")
     model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame,
                                 settings.framename, settings.scale,
-                                settings.frametime)
+                                settings.frametime, settings.depsgraph)
     # Set up fix transformation matrix
     model.fix_transform *= Matrix.Scale(settings.scale, 4)
     model.fix_transform *= Matrix.Translation(Vector((
@@ -1160,7 +1092,8 @@ class ExportMD3(bpy.types.Operator):
                                modeldef=self.properties.md3genmodeldef,
                                zscript=self.properties.md3genactordef,
                                framename=self.properties.md3framename,
-                               frametime=self.properties.md3frametime)
+                               frametime=self.properties.md3frametime,
+                               depsgraph=context.evaluated_depsgraph_get())
         save_md3(settings)
         return {'FINISHED'}
 
