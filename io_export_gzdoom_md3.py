@@ -23,7 +23,7 @@ bl_info = {
         "name": "GZDoom .MD3",
         "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Mexicouger, Nash Muhandes, Kevin Caccamo",
         "version": (2, 0, 0),
-        "blender": (2, 90, 0),
+        "blender": (2, 80, 0),
         "location": "File > Export > GZDoom model (.md3)",
         "description": "Export mesh to GZDoom model with vertex animation (.md3)",
         "warning": "",
@@ -32,10 +32,12 @@ bl_info = {
         "category": "Import-Export"}
 
 import bpy, struct, math, time
+from bpy_extras.io_utils import ExportHelper
 from os.path import basename, splitext
 from collections import OrderedDict
 from struct import pack
 from mathutils import Matrix, Vector
+from math import floor
 
 ##### User options: Exporter default settings
 default_logtype = 'console' ## console, overwrite, append
@@ -445,7 +447,6 @@ class MD3Settings:
 
 # Convert a XYZ vector to an integer vector for conversion to MD3
 def convert_xyz(xyz):
-    from math import floor
     def convert(number, factor):
         return floor(number * factor)
     factors = [MD3_XYZ_SCALE] * len(xyz)
@@ -484,7 +485,6 @@ class BlenderSurface:
 class BlenderModelManager:
     def __init__(self, gzdoom, model_name, ref_frame=None, frame_name="MDLA",
                  scale=1, frame_time=0, depsgraph=None):
-        from math import floor
         self.md3 = MD3Object()
         self.md3.name = model_name
         self.material_surfaces = OrderedDict()
@@ -572,7 +572,7 @@ class BlenderModelManager:
             bsurface = self.material_surfaces[face_mtl]
             # Add the faces to the surface
             self._add_tri(bsurface, obj_mesh, mesh_obj.name, face_index, face.vertices)
-        bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
+        mesh_obj.to_mesh_clear()
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
                  mesh_vertex_indices, face_vertex_indices=range(3)):
@@ -580,7 +580,7 @@ class BlenderModelManager:
         from collections import namedtuple
         VertexReference = namedtuple(
             "VertexReference",
-            "vertex_index normal_index"
+            "vertex_index normal_index smooth"
         )
         ntri = MD3Triangle()
         for iter_index, face_vertex_index in enumerate(face_vertex_indices):
@@ -592,14 +592,14 @@ class BlenderModelManager:
             vertex_position = vertex.co
             # If the face is flat-shaded, the face normal is used.
             # Otherwise, the vertex normal is used.
-            loop_index = face.loops[face_vertex_index]
             face = obj_mesh.loop_triangles[face_index]
+            loop_index = face.loops[face_vertex_index]
             normal_index = loop_index
             if face.use_smooth:
                 vertex_normal = obj_mesh.loops[normal_index].normal
             else:
                 vertex_normal = face.normal
-                normal_index = -1
+                normal_index = face_index
             # Get UV coordinates for this vertex.
             face_uvs = obj_mesh.uv_layers.active.data[loop_index]
             vertex_uv = face_uvs.uv
@@ -622,7 +622,7 @@ class BlenderModelManager:
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
                 vert_refs = bsurface.vertex_refs.setdefault(obj_name, [])
                 vert_refs.append(VertexReference(
-                    vertex_index, normal_index
+                    vertex_index, normal_index, face.use_smooth
                 ))
             else:
                 # The vertex has already been added, so just get its index.
@@ -632,7 +632,7 @@ class BlenderModelManager:
         bsurface.surface.triangles.append(ntri)
 
     def setup_frames(self):
-        from math import floor, log10
+        from math import log10
         # Add the vertex animations for each frame. Only call this AFTER
         # all the triangle and UV data has been set up.
         self.lock_vertices = True
@@ -650,7 +650,7 @@ class BlenderModelManager:
                 nframe.local_origin = self.mesh_objects[0]
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
-                obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
+                obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
                 obj_mesh.calc_normals_split()
@@ -695,8 +695,11 @@ class BlenderModelManager:
                         # Get vertex normal, using the sub-reference if
                         # it is available
                         loop_index = vertex_info.normal_index
-                        if vertex_info.normal_index >= 0:
+                        if vertex_info.smooth:
                             vertex_normal = obj_mesh.loops[loop_index].normal
+                        else:
+                            vertex_normal = (
+                                obj_mesh.loop_triangles[loop_index].normal)
                         # Set up MD3 vertex
                         nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
@@ -704,7 +707,7 @@ class BlenderModelManager:
                             vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
             for obj_mesh in obj_meshes.values():
-                bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
+                mesh_obj.to_mesh_clear()
 
     def add_tag(self, bobject):
         bpy.context.scene.frame_set(bpy.context.scene.frame_start)
@@ -801,7 +804,7 @@ class BaseCoder:
 
     def decode(self, number, minlength=1):
         "Decode a number with an arbitrary base. Takes a number, returns the " "text."
-        from math import log, floor
+        from math import log
         try:
             digits = floor(log(number, self.base)) + 1
         except ValueError:
@@ -959,9 +962,7 @@ def save_md3(settings):
     endtime = time.clock() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
 
-from bpy.props import *
-
-class ExportMD3(bpy.types.Operator):
+class ExportMD3(bpy.types.Operator, ExportHelper):
     '''Export to .md3'''
     bl_idname = "export.md3"
     bl_label = 'Export MD3'
@@ -973,48 +974,48 @@ class ExportMD3(bpy.types.Operator):
         ("blender","Blender internal text","Write log to Blender text data block")
     ]
 
-    filename_ext = ".md3"
-    filepath = StringProperty(
+    filename_ext = ".md3"  # Used by ExportHelper
+    filepath = bpy.props.StringProperty(
         subtype='FILE_PATH',
         name="File Path",
         description="Filepath for exporting",
         maxlen=1024,
         default="")
-    md3name = StringProperty(
+    md3name = bpy.props.StringProperty(
         name="MD3 Name",
         description="MD3 header name / skin path (64 bytes)",
         maxlen=64,
         default="")
-    md3logtype = EnumProperty(
+    md3logtype = bpy.props.EnumProperty(
         name="Save log",
         items=logenum,
         description="File logging options",
         default=str(default_logtype))
-    md3dumpall = BoolProperty(
+    md3dumpall = bpy.props.BoolProperty(
         name="Dump all",
         description="Dump all data for md3 to log",
         default=default_dumpall)
-    md3scale = FloatProperty(
+    md3scale = bpy.props.FloatProperty(
         name="Scale",
         description="Scale all objects from world origin (0,0,0)",
         default=1.0,
         precision=5)
-    md3offsetx = FloatProperty(
+    md3offsetx = bpy.props.FloatProperty(
         name="Offset X",
         description="Transition scene along x axis",
         default=0.0,
         precision=5)
-    md3offsety = FloatProperty(
+    md3offsety = bpy.props.FloatProperty(
         name="Offset Y",
         description="Transition scene along y axis",
         default=0.0,
         precision=5)
-    md3offsetz = FloatProperty(
+    md3offsetz = bpy.props.FloatProperty(
         name="Offset Z",
         description="Transition scene along z axis",
         default=0.0,
         precision=5)
-    md3refframe = IntProperty(
+    md3refframe = bpy.props.IntProperty(
         name="Reference Frame",
         description="The frame to use for vertices, UVs, and triangles. May "
             "be useful in case you have an animation where the model has an "
@@ -1022,26 +1023,26 @@ class ExportMD3(bpy.types.Operator):
             "of -1 uses the current frame in the current scene",
         default=-1,
         min=-1)
-    md3forgzdoom = BoolProperty(
+    md3forgzdoom = bpy.props.BoolProperty(
         name="Export for GZDoom",
         description="Export the model for GZDoom; Fixes normals pointing "
             "straight up or straight down for when GZDoom displays the model",
         default=True)
-    md3genmodeldef = BoolProperty(
+    md3genmodeldef = bpy.props.BoolProperty(
         name="Generate Modeldef",
         description="Generate a Modeldef.txt file for the model. The filename "
             "will be modeldef.modelname.txt",
         default=False)
-    md3genactordef = BoolProperty(
+    md3genactordef = bpy.props.BoolProperty(
         name="Generate ZScript",
         description="Generate a ZScript actor definition for the model. The "
             "filename will be zscript.modelname.txt",
         default=False)
-    md3framename = StringProperty(
+    md3framename = bpy.props.StringProperty(
         name="Frame name",
         description="Initial name to use for the actor sprite frames",
         default="MDLA")
-    md3frametime = IntProperty(
+    md3frametime = bpy.props.IntProperty(
         name="Frame duration",
         description="How long each frame should last. If 0, frame duration is "
             "calculated based on scene FPS",
@@ -1053,14 +1054,14 @@ class ExportMD3(bpy.types.Operator):
         col = layout.column()
         col.prop(self, "md3name")
         row = col.row()
-        row.prop(self, "md3logtype", "Log")
+        row.prop(self, "md3logtype", text="Log")
         row.prop(self, "md3dumpall")
         col.prop(self, "md3scale")
-        col.label("Offset:")
+        col.label(text="Offset:")
         row = col.row()
-        row.prop(self, "md3offsetx", "X")
-        row.prop(self, "md3offsety", "Y")
-        row.prop(self, "md3offsetz", "Z")
+        row.prop(self, "md3offsetx", text="X")
+        row.prop(self, "md3offsety", text="Y")
+        row.prop(self, "md3offsetz", text="Z")
         col.prop(self, "md3refframe")
         col.prop(self, "md3forgzdoom")
         col.prop(self, "md3genactordef")
@@ -1069,14 +1070,16 @@ class ExportMD3(bpy.types.Operator):
             col.prop(self, "md3framename")
         if self.properties.md3genactordef:
             col.prop(self, "md3frametime")
+            # Calculate and display animation timing
             frame_time = self.properties.md3frametime
             if frame_time == 0:
                 frame_time = max(1, floor(35 / context.scene.render.fps))
             fps = 35 / frame_time
             frame_count = context.scene.frame_end - context.scene.frame_start
             total = frame_time * frame_count
-            stats = "{0:.3f} fps, {2} frames, {1} total tics".format(fps, total, frame_count)
-            col.label(stats)
+            stats = "{0:.3f} fps, {2} frames, {1} total tics".format(
+                fps, total, frame_count)
+            col.label(text=stats)
 
     def execute(self, context):
         settings = MD3Settings(savepath=self.properties.filepath,
@@ -1111,11 +1114,11 @@ def menu_func(self, context):
 
 def register():
     bpy.utils.register_class(ExportMD3)
-    bpy.types.INFO_MT_file_export.append(menu_func)
+    bpy.types.TOPBAR_MT_file_export.append(menu_func)
 
 def unregister():
     bpy.utils.unregister_class(ExportMD3)
-    bpy.types.INFO_MT_file_export.remove(menu_func)
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func)
 
 if __name__ == "__main__":
     register()
