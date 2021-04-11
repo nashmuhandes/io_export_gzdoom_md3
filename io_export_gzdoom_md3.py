@@ -448,10 +448,10 @@ class MD3Settings:
 # Convert a XYZ vector to an integer vector for conversion to MD3
 def convert_xyz(xyz):
     def convert(number, factor):
-        return floor(number * factor)
+        return int(floor(number * factor))
     factors = [MD3_XYZ_SCALE] * len(xyz)
     position = map(convert, xyz, factors)
-    return tuple(map(int, position))
+    return tuple(position)
 
 
 # A class to help manage individual surfaces within a model
@@ -464,12 +464,12 @@ class BlenderSurface:
         self.surface.name = material
         self.surface.shader.name = material
 
-        # {Mesh object: [(vertex index, normal index, normal reference), ...]}
+        # {Mesh object: [(triangle index, vertex index, smooth), ...]}
         # Where "Mesh object" is the NAME of the object from which the mesh was
-        # created, "vertex index" is the index of the vertex in mesh.vertices,
-        # "normal index" is the index of the normal on the normal object, and
-        # "normal reference" is a string referring to the array to use when
-        # which has the normal to use.
+        # created, "triangle index" is the index of the triangle in
+        # mesh.loop_triangles, "vertex index" is the index of the vertex on the 
+        # face, and "smooth" is a boolean value which specifies which normal
+        # should be used (False to use face normal, True to use split normal)
         self.vertex_refs = {}
 
         # Vertices (position, normal, and UV) in MD3 binary format, mapped to
@@ -545,7 +545,7 @@ class BlenderModelManager:
         self.mesh_objects.append(mesh_obj)
         bpy.context.scene.frame_set(self.ref_frame)
         obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
-        obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
+        obj_mesh.transform(self.fix_transform @ mesh_obj.matrix_world)
         # calc_normals_split recalculates normals, even on meshes without
         # custom normals. If I didn't do this, the vertex normals would be all
         # wrong.
@@ -571,36 +571,36 @@ class BlenderModelManager:
                 self.md3.surfaces.append(bsurface.surface)
             bsurface = self.material_surfaces[face_mtl]
             # Add the faces to the surface
-            self._add_tri(bsurface, obj_mesh, mesh_obj.name, face_index, face.vertices)
+            self._add_tri(
+                bsurface, obj_mesh, mesh_obj.name, face_index, face.vertices)
         mesh_obj.to_mesh_clear()
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
-                 mesh_vertex_indices, face_vertex_indices=range(3)):
+                 mesh_vertex_indices):
         # Define VertexReference named tuple
         from collections import namedtuple
         VertexReference = namedtuple(
             "VertexReference",
-            "vertex_index normal_index smooth"
+            "tri_index tri_vertex_index smooth"
         )
         ntri = MD3Triangle()
-        for iter_index, face_vertex_index in enumerate(face_vertex_indices):
+        tri_index = face_index
+        for tri_vertex_index in range(3):
+            face = obj_mesh.loop_triangles[face_index]
             # Set up the new triangle
-            vertex_index = mesh_vertex_indices[face_vertex_index]
+            vertex_index = face.vertices[tri_vertex_index]
             # Get vertex ID, which is the vertex in MD3 binary format. First,
             # get the vertex position
             vertex = obj_mesh.vertices[vertex_index]
             vertex_position = vertex.co
             # If the face is flat-shaded, the face normal is used.
             # Otherwise, the vertex normal is used.
-            face = obj_mesh.loop_triangles[face_index]
-            loop_index = face.loops[face_vertex_index]
-            normal_index = loop_index
             if face.use_smooth:
-                vertex_normal = obj_mesh.loops[normal_index].normal
+                vertex_normal = face.split_normals[tri_vertex_index]
             else:
                 vertex_normal = face.normal
-                normal_index = face_index
             # Get UV coordinates for this vertex.
+            loop_index = face.loops[tri_vertex_index]
             face_uvs = obj_mesh.uv_layers.active.data[loop_index]
             vertex_uv = face_uvs.uv
             # Get ID from position, normal, and UV.
@@ -622,23 +622,25 @@ class BlenderModelManager:
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
                 vert_refs = bsurface.vertex_refs.setdefault(obj_name, [])
                 vert_refs.append(VertexReference(
-                    vertex_index, normal_index, face.use_smooth
+                    tri_index, tri_vertex_index, face.use_smooth
                 ))
             else:
                 # The vertex has already been added, so just get its index.
                 md3_vertex_index = bsurface.unique_vertices[vertex_id]
             # Set the vertex index on the triangle.
-            ntri.indexes[iter_index] = md3_vertex_index
+            ntri.indexes[tri_vertex_index] = md3_vertex_index
         bsurface.surface.triangles.append(ntri)
 
     def setup_frames(self):
         from math import log10
+        from collections import namedtuple
+        ObjectReference = namedtuple("ObjectReference", "object mesh")
         # Add the vertex animations for each frame. Only call this AFTER
         # all the triangle and UV data has been set up.
         self.lock_vertices = True
         for frame in range(self.start_frame, self.end_frame):
             bpy.context.scene.frame_set(frame)
-            obj_meshes = {}
+            obj_refs = {}
             nframe = MD3Frame()
             frame_digits = floor(log10(self.end_frame - self.start_frame)) + 1
             frame_num = frame - self.start_frame
@@ -652,7 +654,7 @@ class BlenderModelManager:
             for mesh_obj in self.mesh_objects:
                 obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
                 # Set up obj_mesh
-                obj_mesh.transform(self.fix_transform * mesh_obj.matrix_world)
+                obj_mesh.transform(self.fix_transform @ mesh_obj.matrix_world)
                 obj_mesh.calc_normals_split()
                 obj_mesh.calc_loop_triangles()
                 # Set up frame bounds/origin/radius
@@ -683,38 +685,37 @@ class BlenderModelManager:
                         nframe.maxs[2] = vertex.co[2]
                 nframe.radius = max(nframe.mins.length, nframe.maxs.length)
                 # Add mesh to dict
-                obj_meshes[mesh_obj.name] = obj_mesh
+                obj_refs[mesh_obj.name] = ObjectReference(mesh_obj, obj_mesh)
             self.md3.frames.append(nframe)
             for bsurface in self.material_surfaces.values():
                 for mesh_name, vertex_infos in bsurface.vertex_refs.items():
-                    obj_mesh = obj_meshes[mesh_name]
+                    obj_mesh = obj_refs[mesh_name].mesh
                     for vertex_info in vertex_infos:
+                        tri = obj_mesh.loop_triangles[vertex_info.tri_index]
                         # Get vertex position
                         vertex_position = obj_mesh.vertices[
-                            vertex_info.vertex_index].co
-                        # Get vertex normal, using the sub-reference if
-                        # it is available
-                        loop_index = vertex_info.normal_index
+                            tri.vertices[vertex_info.tri_vertex_index]].co
+                        # Get vertex normal
                         if vertex_info.smooth:
-                            vertex_normal = obj_mesh.loops[loop_index].normal
+                            vertex_normal = tri.split_normals[
+                                vertex_info.tri_vertex_index]
                         else:
-                            vertex_normal = (
-                                obj_mesh.loop_triangles[loop_index].normal)
+                            vertex_normal = tri.normal
                         # Set up MD3 vertex
                         nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
                         nvertex.normal = MD3Vertex.encode(
                             vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
-            for obj_mesh in obj_meshes.values():
-                mesh_obj.to_mesh_clear()
+            for obj_ref in obj_refs.values():
+                obj_ref.object.to_mesh_clear()
 
     def add_tag(self, bobject):
         bpy.context.scene.frame_set(bpy.context.scene.frame_start)
         position = bobject.location.copy()
-        position = self.fix_transform * position
+        position = self.fix_transform @ position
         orientation = bobject.matrix_world.to_3x3().normalize()
-        orientation = self.fix_transform.to_3x3() * orientation
+        orientation = self.fix_transform.to_3x3() @ orientation
         ntag = MD3Tag()
         ntag.origin = position
         ntag.axis[0:3] = orientation[0]
@@ -941,10 +942,12 @@ def save_md3(settings):
                                 settings.framename, settings.scale,
                                 settings.frametime, settings.depsgraph)
     # Set up fix transformation matrix
-    model.fix_transform *= Matrix.Scale(settings.scale, 4)
-    model.fix_transform *= Matrix.Translation(Vector((
-        settings.offsetx, settings.offsety, settings.offsetz)))
-    model.fix_transform *= Matrix.Rotation(radians(90), 4, 'Z')
+    scale_fix = Matrix.Scale(settings.scale, 4)
+    pos_fix = Matrix.Translation((
+        settings.offsetx, settings.offsety, settings.offsetz))
+    rot_fix = Matrix.Rotation(radians(90.0), 4, 'Z')
+    # @ operator is used for matrix multiplication
+    model.fix_transform = model.fix_transform @ scale_fix @ pos_fix @ rot_fix
     # Add objects to model manager
     if len(bpy.context.selected_objects) == 0:
         message(log, "Select an object to export!")
@@ -961,6 +964,9 @@ def save_md3(settings):
     model.save(settings.savepath, settings.modeldef, settings.zscript)
     endtime = time.clock() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
+    if isinstance(log, bpy.types.Text):
+        log.cursor_set(0)
+
 
 class ExportMD3(bpy.types.Operator, ExportHelper):
     '''Export to .md3'''
