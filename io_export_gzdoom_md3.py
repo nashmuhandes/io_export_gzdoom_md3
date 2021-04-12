@@ -39,10 +39,6 @@ from struct import pack
 from mathutils import Matrix, Vector
 from math import floor
 
-##### User options: Exporter default settings
-default_logtype = 'console' ## console, overwrite, append
-default_dumpall = False
-
 
 MAX_QPATH = 64
 
@@ -410,39 +406,6 @@ def message(log,msg):
         log.write(msg + "\n")
     else:
         print(msg)
-
-class MD3Settings:
-    def __init__(self,
-                 savepath,
-                 name,
-                 logtype,
-                 dumpall=False,
-                 scale=1.0,
-                 offsetx=0.0,
-                 offsety=0.0,
-                 offsetz=0.0,
-                 refframe=0,
-                 gzdoom=True,
-                 modeldef=False,
-                 zscript=False,
-                 framename="MDLA",
-                 frametime=0,
-                 depsgraph=None):
-        self.savepath = savepath
-        self.name = name
-        self.logtype = logtype
-        self.dumpall = dumpall
-        self.scale = scale
-        self.offsetx = offsetx
-        self.offsety = offsety
-        self.offsetz = offsetz
-        self.refframe = refframe
-        self.gzdoom = gzdoom
-        self.modeldef = modeldef
-        self.zscript = zscript
-        self.framename = framename
-        self.frametime = frametime
-        self.depsgraph = depsgraph
 
 
 # Convert a XYZ vector to an integer vector for conversion to MD3
@@ -916,37 +879,39 @@ def print_md3(log,md3,dumpall):
     message(log,"Total Triangles: " + str(tri_count))
     message(log,"Total Vertices: " + str(vert_count))
 
+
 # Main function
 def save_md3(settings):
     from math import radians
     starttime = time.clock()  # start timer
-    fullpath = splitext(settings.savepath)[0]
+    fullpath = splitext(settings["filepath"])[0]
     modelname = basename(fullpath)
     logname = modelname + ".log"
     logfpath = fullpath + ".log"
-    if settings.name == "":
-        settings.name = modelname
-    dumpall = settings.dumpall
-    if settings.logtype == "append":
+    if settings["md3name"] == "":
+        settings["md3name"] = modelname
+    dumpall = settings["dump_all"]
+    if settings["log_type"] == "append":
         log = open(logfpath,"a")
-    elif settings.logtype == "overwrite":
+    elif settings["log_type"] == "overwrite":
         log = open(logfpath,"w")
-    elif settings.logtype == "blender":
+    elif settings["log_type"] == "blender":
         log = bpy.data.texts.new(logname)
         log.clear()
     else:
         log = None
-    ref_frame = settings.refframe
-    if settings.refframe == -1:
+    ref_frame = max(bpy.context.scene.frame_start, settings["ref_frame"])
+    if settings["ref_frame"] == -1:
         ref_frame = bpy.context.scene.frame_current
     message(log, "###################### BEGIN ######################")
-    model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame,
-                                settings.framename, settings.scale,
-                                settings.frametime, settings.depsgraph)
+    model = BlenderModelManager(
+        settings["gzdoom"], settings["md3name"], ref_frame,
+        settings["frame_name"], settings["scale"],
+        settings["frame_time"], settings["depsgraph"])
     # Set up fix transformation matrix
-    scale_fix = Matrix.Scale(settings.scale, 4)
+    scale_fix = Matrix.Scale(settings["scale"], 4)
     pos_fix = Matrix.Translation((
-        settings.offsetx, settings.offsety, settings.offsetz))
+        settings["offsetx"], settings["offsety"], settings["offsetz"]))
     rot_fix = Matrix.Rotation(radians(90.0), 4, 'Z')
     # @ operator is used for matrix multiplication
     model.fix_transform = model.fix_transform @ scale_fix @ pos_fix @ rot_fix
@@ -963,7 +928,9 @@ def save_md3(settings):
     model.setup_frames()
     model.md3.get_size()
     print_md3(log, model.md3, dumpall)
-    model.save(settings.savepath, settings.modeldef, settings.zscript)
+    model.save(
+        settings["filepath"], settings["gen_modeldef"],
+        settings["gen_actordef"])
     endtime = time.clock() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
     if isinstance(log, bpy.types.Text):
@@ -975,7 +942,7 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
     bl_idname = "export.md3"
     bl_label = 'Export MD3'
 
-    logenum = [
+    log_type_options = [
         ("console","Console","Log to console"),
         ("append","Append","Append to log file"),
         ("overwrite","Overwrite","Overwrite log file"),
@@ -983,47 +950,42 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
     ]
 
     filename_ext = ".md3"  # Used by ExportHelper
-    filepath = bpy.props.StringProperty(
-        subtype='FILE_PATH',
-        name="File Path",
-        description="Filepath for exporting",
-        maxlen=1024,
-        default="")
-    md3name = bpy.props.StringProperty(
+    # filepath is defined by ExportHelper
+    md3name: bpy.props.StringProperty(
         name="MD3 Name",
         description="MD3 header name / skin path (64 bytes)",
         maxlen=64,
         default="")
-    md3logtype = bpy.props.EnumProperty(
+    log_type: bpy.props.EnumProperty(
         name="Save log",
-        items=logenum,
+        items=log_type_options,
         description="File logging options",
-        default=str(default_logtype))
-    md3dumpall = bpy.props.BoolProperty(
+        default="console")
+    dump_all: bpy.props.BoolProperty(
         name="Dump all",
         description="Dump all data for md3 to log",
-        default=default_dumpall)
-    md3scale = bpy.props.FloatProperty(
+        default=False)
+    scale: bpy.props.FloatProperty(
         name="Scale",
         description="Scale all objects from world origin (0,0,0)",
         default=1.0,
         precision=5)
-    md3offsetx = bpy.props.FloatProperty(
+    offsetx: bpy.props.FloatProperty(
         name="Offset X",
         description="Transition scene along x axis",
         default=0.0,
         precision=5)
-    md3offsety = bpy.props.FloatProperty(
+    offsety: bpy.props.FloatProperty(
         name="Offset Y",
         description="Transition scene along y axis",
         default=0.0,
         precision=5)
-    md3offsetz = bpy.props.FloatProperty(
+    offsetz: bpy.props.FloatProperty(
         name="Offset Z",
         description="Transition scene along z axis",
         default=0.0,
         precision=5)
-    md3refframe = bpy.props.IntProperty(
+    ref_frame: bpy.props.IntProperty(
         name="Reference Frame",
         description="The frame to use for vertices, UVs, and triangles. May "
             "be useful in case you have an animation where the model has an "
@@ -1031,31 +993,30 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
             "of -1 uses the current frame in the current scene",
         default=-1,
         min=-1)
-    md3forgzdoom = bpy.props.BoolProperty(
+    gzdoom: bpy.props.BoolProperty(
         name="Export for GZDoom",
         description="Export the model for GZDoom; Fixes normals pointing "
             "straight up or straight down for when GZDoom displays the model",
         default=True)
-    md3genmodeldef = bpy.props.BoolProperty(
+    gen_modeldef: bpy.props.BoolProperty(
         name="Generate Modeldef",
         description="Generate a Modeldef.txt file for the model. The filename "
             "will be modeldef.modelname.txt",
         default=False)
-    md3genactordef = bpy.props.BoolProperty(
+    gen_actordef: bpy.props.BoolProperty(
         name="Generate ZScript",
         description="Generate a ZScript actor definition for the model. The "
             "filename will be zscript.modelname.txt",
         default=False)
-    md3framename = bpy.props.StringProperty(
+    frame_name: bpy.props.StringProperty(
         name="Frame name",
         description="Initial name to use for the actor sprite frames",
         default="MDLA")
-    md3frametime = bpy.props.IntProperty(
+    frame_time: bpy.props.IntProperty(
         name="Frame duration",
         description="How long each frame should last. If 0, frame duration is "
             "calculated based on scene FPS",
         default=0, min=0, soft_min=0)
-    check_extension = True
 
     def draw(self, context):
         from math import floor
@@ -1063,24 +1024,24 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         col = layout.column()
         col.prop(self, "md3name")
         row = col.row()
-        row.prop(self, "md3logtype", text="Log")
-        row.prop(self, "md3dumpall")
-        col.prop(self, "md3scale")
+        row.prop(self, "log_type", text="Log")
+        row.prop(self, "dump_all")
+        col.prop(self, "scale")
         col.label(text="Offset:")
         row = col.row()
-        row.prop(self, "md3offsetx", text="X")
-        row.prop(self, "md3offsety", text="Y")
-        row.prop(self, "md3offsetz", text="Z")
-        col.prop(self, "md3refframe")
-        col.prop(self, "md3forgzdoom")
-        col.prop(self, "md3genactordef")
-        col.prop(self, "md3genmodeldef")
-        if self.properties.md3genactordef or self.properties.md3genmodeldef:
-            col.prop(self, "md3framename")
-        if self.properties.md3genactordef:
-            col.prop(self, "md3frametime")
+        row.prop(self, "offsetx", text="X")
+        row.prop(self, "offsety", text="Y")
+        row.prop(self, "offsetz", text="Z")
+        col.prop(self, "ref_frame")
+        col.prop(self, "gzdoom")
+        col.prop(self, "gen_actordef")
+        col.prop(self, "gen_modeldef")
+        if self.gen_actordef or self.gen_modeldef:
+            col.prop(self, "frame_name")
+        if self.gen_actordef:
+            col.prop(self, "frame_time")
             # Calculate and display animation timing
-            frame_time = self.properties.md3frametime
+            frame_time = self.frame_time
             if frame_time == 0:
                 frame_time = max(1, floor(35 / context.scene.render.fps))
             fps = 35 / frame_time
@@ -1091,32 +1052,17 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
             col.label(text=stats)
 
     def execute(self, context):
-        settings = MD3Settings(savepath=self.properties.filepath,
-                               name=self.properties.md3name,
-                               logtype=self.properties.md3logtype,
-                               dumpall=self.properties.md3dumpall,
-                               scale=self.properties.md3scale,
-                               offsetx=self.properties.md3offsetx,
-                               offsety=self.properties.md3offsety,
-                               offsetz=self.properties.md3offsetz,
-                               refframe=self.properties.md3refframe,
-                               gzdoom=self.properties.md3forgzdoom,
-                               modeldef=self.properties.md3genmodeldef,
-                               zscript=self.properties.md3genactordef,
-                               framename=self.properties.md3framename,
-                               frametime=self.properties.md3frametime,
-                               depsgraph=context.evaluated_depsgraph_get())
+        settings = self.as_keywords(ignore=(
+            "log_type_options",
+            "check_existing",
+            "bl_idname",
+            "bl_label"
+        ))
+        depsgraph = context.evaluated_depsgraph_get()
+        settings["depsgraph"] = depsgraph
         save_md3(settings)
         return {'FINISHED'}
 
-    def invoke(self, context, event):
-        wm = context.window_manager
-        wm.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object != None
 
 def menu_func(self, context):
     self.layout.operator(ExportMD3.bl_idname, text="GZDoom MD3", icon='BLENDER')
