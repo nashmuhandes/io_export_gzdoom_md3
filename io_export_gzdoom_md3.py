@@ -881,37 +881,37 @@ def print_md3(log,md3,dumpall):
 
 
 # Main function
-def save_md3(settings):
+def save_md3(
+        filepath, log_type, depsgraph, md3name="", dump_all=False, ref_frame=-1,
+        orig_frame=None, gzdoom=True, sprite_name=False, sprite_tics=1,
+        offsetx=0, offsety=0, offsetz=0, scale=1, gen_actordef=False,
+        gen_modeldef=False):
     from math import radians
     starttime = time.clock()  # start timer
-    fullpath = splitext(settings["filepath"])[0]
+    fullpath = splitext(filepath)[0]
     modelname = basename(fullpath)
     logname = modelname + ".log"
     logfpath = fullpath + ".log"
-    if settings["md3name"] == "":
-        settings["md3name"] = modelname
-    dumpall = settings["dump_all"]
-    if settings["log_type"] == "append":
+    if md3name == "":
+        md3name = modelname
+    if log_type == "append":
         log = open(logfpath,"a")
-    elif settings["log_type"] == "overwrite":
+    elif log_type == "overwrite":
         log = open(logfpath,"w")
-    elif settings["log_type"] == "blender":
+    elif log_type == "blender":
         log = bpy.data.texts.new(logname)
         log.clear()
     else:
         log = None
-    ref_frame = max(bpy.context.scene.frame_start, settings["ref_frame"])
-    if settings["ref_frame"] == -1:
-        ref_frame = settings["orig_frame"]
+    ref_frame = max(bpy.context.scene.frame_start, ref_frame)
+    if ref_frame == -1:
+        ref_frame = orig_frame
     message(log, "###################### BEGIN ######################")
     model = BlenderModelManager(
-        settings["gzdoom"], settings["md3name"], ref_frame,
-        settings["frame_name"], settings["scale"],
-        settings["frame_time"], settings["depsgraph"])
-    # Set up fix transformation matrix
-    scale_fix = Matrix.Scale(settings["scale"], 4)
-    pos_fix = Matrix.Translation((
-        settings["offsetx"], settings["offsety"], settings["offsetz"]))
+        gzdoom, md3name, ref_frame, sprite_name, scale, sprite_tics, depsgraph)
+    # Set up "fix" transformation matrix
+    scale_fix = Matrix.Scale(scale, 4)
+    pos_fix = Matrix.Translation((offsetx, offsety, offsetz))
     rot_fix = Matrix.Rotation(radians(90.0), 4, 'Z')
     # @ operator is used for matrix multiplication
     model.fix_transform = model.fix_transform @ scale_fix @ pos_fix @ rot_fix
@@ -927,15 +927,13 @@ def save_md3(settings):
                 model.add_tag(bobject)
     model.setup_frames()
     model.md3.get_size()
-    print_md3(log, model.md3, dumpall)
-    model.save(
-        settings["filepath"], settings["gen_modeldef"],
-        settings["gen_actordef"])
+    print_md3(log, model.md3, dump_all)
+    model.save(filepath, gen_modeldef, gen_actordef)
     endtime = time.clock() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
     if isinstance(log, bpy.types.Text):
         log.cursor_set(0)
-    bpy.context.scene.frame_set(settings["orig_frame"])
+    bpy.context.scene.frame_set(orig_frame)
 
 
 class ExportMD3(bpy.types.Operator, ExportHelper):
@@ -1009,12 +1007,12 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         description="Generate a ZScript actor definition for the model. The "
             "filename will be zscript.modelname.txt",
         default=False)
-    frame_name: bpy.props.StringProperty(
-        name="Frame name",
+    sprite_name: bpy.props.StringProperty(
+        name="Sprite frame name",
         description="Initial name to use for the actor sprite frames",
         default="MDLA")
-    frame_time: bpy.props.IntProperty(
-        name="Frame duration",
+    sprite_tics: bpy.props.IntProperty(
+        name="Sprite frame duration",
         description="How long each frame should last. If 0, frame duration is "
             "calculated based on scene FPS",
         default=0, min=0, soft_min=0)
@@ -1038,11 +1036,11 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         col.prop(self, "gen_actordef")
         col.prop(self, "gen_modeldef")
         if self.gen_actordef or self.gen_modeldef:
-            col.prop(self, "frame_name")
+            col.prop(self, "sprite_name")
         if self.gen_actordef:
-            col.prop(self, "frame_time")
+            col.prop(self, "sprite_tics")
             # Calculate and display animation timing
-            frame_time = self.frame_time
+            frame_time = self.sprite_tics
             if frame_time == 0:
                 frame_time = max(1, floor(35 / context.scene.render.fps))
             fps = 35 / frame_time
@@ -1068,10 +1066,9 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
             "bl_idname",
             "bl_label"
         ))
-        depsgraph = context.evaluated_depsgraph_get()
-        settings["depsgraph"] = depsgraph
+        settings["depsgraph"] = context.evaluated_depsgraph_get()
         settings["orig_frame"] = bpy.context.scene.frame_current
-        save_md3(settings)
+        save_md3(**settings)
         return {'FINISHED'}
 
 
