@@ -1046,11 +1046,20 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
             if frame_time == 0:
                 frame_time = max(1, floor(35 / context.scene.render.fps))
             fps = 35 / frame_time
-            frame_count = context.scene.frame_end - context.scene.frame_start
-            total = frame_time * frame_count
-            stats = "{0:.3f} fps, {2} frames, {1} total tics".format(
-                fps, total, frame_count)
-            col.label(text=stats)
+            frame_count = (
+                context.scene.frame_end - context.scene.frame_start + 1)
+            # "Animation tics" are the amount of tics an animation takes from
+            # start to finish. "Total tics" are the amount of tics for 1 static
+            # frame, plus the animation tics. Useful for choreography, such as
+            # with the hangar bay doors in Wolfenstein: Blade of Agony C2M5_B
+            anim_tics = frame_time * (frame_count - 1)
+            total_tics = frame_time * frame_count
+            frame_stats = ("{1} frames, {0:.3f} frames per second").format(
+                fps, frame_count)
+            tic_stats = "{0} animation tics, {1} total tics".format(
+                anim_tics, total_tics)
+            col.label(text=frame_stats)
+            col.label(text=tic_stats)
 
     def execute(self, context):
         settings = self.as_keywords(ignore=(
