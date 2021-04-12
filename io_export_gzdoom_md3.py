@@ -544,6 +544,7 @@ class BlenderModelManager:
             return
         self.mesh_objects.append(mesh_obj)
         bpy.context.scene.frame_set(self.ref_frame)
+        mesh_obj = mesh_obj.evaluated_get(self.depsgraph)
         obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
         obj_mesh.transform(self.fix_transform @ mesh_obj.matrix_world)
         # calc_normals_split recalculates normals, even on meshes without
@@ -652,6 +653,7 @@ class BlenderModelManager:
                 nframe.local_origin = self.mesh_objects[0]
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
+                mesh_obj = mesh_obj.evaluated_get(self.depsgraph)
                 obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform @ mesh_obj.matrix_world)
@@ -1053,6 +1055,7 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         description="How long each frame should last. If 0, frame duration is "
             "calculated based on scene FPS",
         default=0, min=0, soft_min=0)
+    check_extension = True
 
     def draw(self, context):
         from math import floor
