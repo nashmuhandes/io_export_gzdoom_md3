@@ -902,7 +902,7 @@ def save_md3(settings):
         log = None
     ref_frame = max(bpy.context.scene.frame_start, settings["ref_frame"])
     if settings["ref_frame"] == -1:
-        ref_frame = bpy.context.scene.frame_current
+        ref_frame = settings["orig_frame"]
     message(log, "###################### BEGIN ######################")
     model = BlenderModelManager(
         settings["gzdoom"], settings["md3name"], ref_frame,
@@ -935,6 +935,7 @@ def save_md3(settings):
     message(log, "Export took {:.3f} seconds".format(endtime))
     if isinstance(log, bpy.types.Text):
         log.cursor_set(0)
+    bpy.context.scene.frame_set(settings["orig_frame"])
 
 
 class ExportMD3(bpy.types.Operator, ExportHelper):
@@ -1060,6 +1061,7 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         ))
         depsgraph = context.evaluated_depsgraph_get()
         settings["depsgraph"] = depsgraph
+        settings["orig_frame"] = bpy.context.scene.frame_current
         save_md3(settings)
         return {'FINISHED'}
 
