@@ -887,7 +887,7 @@ def save_md3(
         offsetx=0, offsety=0, offsetz=0, scale=1, gen_actordef=False,
         gen_modeldef=False):
     from math import radians
-    starttime = time.clock()  # start timer
+    starttime = time.perf_counter()  # start timer
     fullpath = splitext(filepath)[0]
     modelname = basename(fullpath)
     logname = modelname + ".log"
@@ -929,7 +929,7 @@ def save_md3(
     model.md3.get_size()
     print_md3(log, model.md3, dump_all)
     model.save(filepath, gen_modeldef, gen_actordef)
-    endtime = time.clock() - starttime
+    endtime = time.perf_counter() - starttime
     message(log, "Export took {:.3f} seconds".format(endtime))
     if isinstance(log, bpy.types.Text):
         log.cursor_set(0)
