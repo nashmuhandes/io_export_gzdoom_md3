@@ -504,7 +504,9 @@ class BlenderModelManager:
         been added.
         """
         if self.lock_vertices:
-            return
+            return False
+        if mesh_obj in self.mesh_objects:
+            return False
         self.mesh_objects.append(mesh_obj)
         bpy.context.scene.frame_set(self.ref_frame)
         mesh_obj = mesh_obj.evaluated_get(self.depsgraph)
@@ -538,6 +540,7 @@ class BlenderModelManager:
             self._add_tri(
                 bsurface, obj_mesh, mesh_obj.name, face_index, face.vertices)
         mesh_obj.to_mesh_clear()
+        return True
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
                  mesh_vertex_indices):
@@ -610,10 +613,16 @@ class BlenderModelManager:
             frame_num = frame - self.start_frame
             nframe.name = (("{:0" + str(frame_digits) + "d}")
                            .format(frame_num))
+            if len(self.mesh_objects) == 0:
+                nframe.local_origin = Vector((0, 0, 0))
+                nframe.mins = Vector((0, 0, 0))
+                nframe.maxs = Vector((0, 0, 0))
+                self.md3.frames.append(nframe)
+                continue
             if bpy.context.active_object in self.mesh_objects:
                 nframe.local_origin = bpy.context.active_object.location
-            else:
-                nframe.local_origin = self.mesh_objects[0]
+            elif len(self.mesh_objects) > 0:
+                nframe.local_origin = self.mesh_objects[0].location
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
                 mesh_obj = mesh_obj.evaluated_get(self.depsgraph)
@@ -925,6 +934,7 @@ def save_md3(
                 model.add_mesh(bobject)
             elif bobject.type == 'EMPTY':
                 model.add_tag(bobject)
+        model.add_mesh(bpy.context.active_object)
     model.setup_frames()
     model.md3.get_size()
     print_md3(log, model.md3, dump_all)
