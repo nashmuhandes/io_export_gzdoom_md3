@@ -17,13 +17,13 @@
 # ***** END GPL LICENCE BLOCK *****
 #
 # Updates and additions for Blender 2.6X by Derek McPherson
-# Updates for Blender 2.9 by Kevin Caccamo
+# Updates for Blender 3.2.0 by Kevin Caccamo and Nash Muhandes
 #
 bl_info = {
         "name": "GZDoom .MD3",
         "author": "Derek McPherson, Xembie, PhaethonH, Bob Holcomb, Damien McGinnes, Robert (Tr3B) Beckebans, CoDEmanX, Mexicouger, Nash Muhandes, Kevin Caccamo",
         "version": (2, 0, 0),
-        "blender": (2, 80, 0),
+        "blender": (3, 2, 0),
         "location": "File > Export > GZDoom model (.md3)",
         "description": "Export mesh to GZDoom model with vertex animation (.md3)",
         "warning": "",
