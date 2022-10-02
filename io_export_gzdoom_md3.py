@@ -688,9 +688,10 @@ class BlenderModelManager:
         bpy.context.scene.frame_set(bpy.context.scene.frame_start)
         position = bobject.location.copy()
         position = self.fix_transform @ position
-        orientation = bobject.matrix_world.to_3x3().normalize()
+        orientation = bobject.matrix_world.copy().to_3x3().normalized()
         orientation = self.fix_transform.to_3x3() @ orientation
         ntag = MD3Tag()
+        ntag.name = bobject.name
         ntag.origin = position
         ntag.axis[0:3] = orientation[0]
         ntag.axis[3:6] = orientation[1]
