@@ -63,8 +63,9 @@ class MD3Vertex:
         self.xyz = [0, 0, 0]
         self.normal = 0
 
-    def get_size(self):
-        return struct.calcsize(self.binary_format)
+    @staticmethod
+    def get_size():
+        return struct.calcsize(MD3Vertex.binary_format)
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
@@ -120,8 +121,9 @@ class MD3TexCoord:
         self.u = 0.0
         self.v = 0.0
 
-    def get_size(self):
-        return struct.calcsize(self.binary_format)
+    @staticmethod
+    def get_size():
+        return struct.calcsize(MD3TexCoord.binary_format)
 
     def save(self, file):
         uv_x = self.u
@@ -137,8 +139,9 @@ class MD3Triangle:
     def __init__(self):
         self.indexes = [ 0, 0, 0 ]
 
-    def get_size(self):
-        return struct.calcsize(self.binary_format)
+    @staticmethod
+    def get_size():
+        return struct.calcsize(MD3Triangle.binary_format)
 
     def save(self, file):
         indexes = self.indexes[:]
@@ -156,8 +159,9 @@ class MD3Shader:
         self.name = ""
         self.index = 0
 
-    def get_size(self):
-        return struct.calcsize(self.binary_format)
+    @staticmethod
+    def get_size():
+        return struct.calcsize(MD3Shader.binary_format)
 
     def save(self, file):
         name = str.encode(self.name)
@@ -202,25 +206,22 @@ class MD3Surface:
     def get_size(self):
         if self.size > 0:
             return self.size
-        sz = struct.calcsize(self.binary_format)
-        # Triangles
-        self.ofs_triangles = sz
-        for t in self.triangles:
-            sz += t.get_size()
-        # Shader
-        self.ofs_shaders = sz
-        sz += self.shader.get_size()
-        # UVs (St)
-        self.ofs_uv = sz
-        for u in self.uv:
-            sz += u.get_size()
-        # Vertices for each frame
-        self.ofs_verts = sz
-        for v in self.verts:
-            sz += v.get_size()
-        # End
-        self.ofs_end = sz
-        self.size = sz
+        # Triangles (after header)
+        self.ofs_triangles = struct.calcsize(self.binary_format)
+
+        # Shader (after triangles)
+        self.ofs_shaders = self.ofs_triangles + (
+            MD3Triangle.get_size() * len(self.triangles))
+
+        # UVs (after shader)
+        self.ofs_uv = self.ofs_shaders + MD3Shader.get_size()
+
+        # Vertices for each frame (after UVs)
+        self.ofs_verts = self.ofs_uv + MD3TexCoord.get_size() * len(self.uv)
+
+        # End (after vertices)
+        self.ofs_end = self.ofs_verts + MD3Vertex.get_size() * len(self.verts)
+        self.size = self.ofs_end
         return self.ofs_end
 
     def save(self, file):
@@ -268,8 +269,9 @@ class MD3Tag:
         self.origin = [0, 0, 0]
         self.axis = [0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-    def get_size(self):
-        return struct.calcsize(self.binary_format)
+    @staticmethod
+    def get_size():
+        return struct.calcsize(MD3Tag.binary_format)
 
     def save(self, file):
         temp_data = [0] * 13
@@ -305,8 +307,9 @@ class MD3Frame:
         self.radius = 0.0
         self.name = ""
 
-    def get_size(self):
-        return struct.calcsize(self.binary_format)
+    @staticmethod
+    def get_size():
+        return struct.calcsize(MD3Frame.binary_format)
 
     def save(self, file):
         temp_data = [0] * 11
@@ -359,16 +362,21 @@ class MD3Object:
     def get_size(self):
         if self.size > 0:
             return self.size
+        # Frames (after header)
         self.ofs_frames = struct.calcsize(self.binary_format)
-        self.ofs_tags = self.ofs_frames
-        for f in self.frames:
-            self.ofs_tags += f.get_size()
-        self.ofs_surfaces += self.ofs_tags
-        for t in self.tags:
-            self.ofs_surfaces += t.get_size()
-        self.ofs_End = self.ofs_surfaces
-        for s in self.surfaces:
-            self.ofs_end += s.get_size()
+
+        # Tags (after frames)
+        self.ofs_tags = self.ofs_frames + (
+            len(self.frames) * MD3Frame.get_size())
+
+        # Surfaces (after tags)
+        self.ofs_surfaces = self.ofs_tags + (
+            len(self.tags) * MD3Tag.get_size())
+        # Surfaces' sizes can vary because they contain collections of
+        # triangles, vertices, and UV coordinates
+        self.ofs_end = self.ofs_surfaces + sum(
+            map(lambda s: s.get_size(), self.surfaces))
+
         self.size = self.ofs_end
         return self.ofs_end
 
