@@ -713,7 +713,7 @@ class BlenderModelManager:
                            .format(frame_num))
             if bpy.context.active_object in self.mesh_objects:
                 nframe.local_origin = bpy.context.active_object.location
-            else:
+            elif len(self.mesh_objects) > 0:
                 nframe.local_origin = self.mesh_objects[0].location
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
