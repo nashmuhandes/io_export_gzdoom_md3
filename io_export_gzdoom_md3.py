@@ -70,10 +70,10 @@ class MD3Vertex:
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
     def decode(latlng):
-        lat = (latlng >> 8) & 0xFF;
-        lng = (latlng) & 0xFF;
-        lat *= math.pi / 128;
-        lng *= math.pi / 128;
+        lat = (latlng >> 8) & 0xFF
+        lng = (latlng) & 0xFF
+        lat *= math.pi / 128
+        lng *= math.pi / 128
         x = math.cos(lat) * math.sin(lng)
         y = math.sin(lat) * math.sin(lng)
         z =                 math.cos(lng)
@@ -943,7 +943,12 @@ def save_md3(
                 model.add_mesh(bobject)
             elif bobject.type == 'EMPTY':
                 model.add_tag(bobject)
-        model.add_mesh(bpy.context.active_object)
+        if (bpy.context.active_object and
+            bpy.context.active_object not in bpy.context.selected_objects):
+            if bpy.context.active_object.type == 'MESH':
+                model.add_mesh(bpy.context.active_object)
+            elif bpy.context.active_object.type == 'EMPTY':
+                model.add_tag(bpy.context.active_object)
     model.setup_frames()
     model.md3.get_size()
     print_md3(log, model.md3, dump_all)
