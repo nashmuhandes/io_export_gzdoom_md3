@@ -648,7 +648,11 @@ class BlenderModelManager:
                 normal_object = getattr(obj_mesh, normal_ref)
                 vertex_normal = normal_object[normal_index].normal
             # Get UV coordinates for this vertex.
-            face_uvs = obj_mesh.tessface_uv_textures.active.data[face_index]
+            try:
+                face_uvs = (
+                    obj_mesh.tessface_uv_textures.active.data[face_index])
+            except AttributeError:
+                raise ValueError("The mesh needs a UV map!")
             vertex_uv = face_uvs.uv[face_vertex_index]
             # Get ID from position, normal, and UV.
             vertex_id = BlenderModelManager.encode_vertex(
@@ -710,7 +714,7 @@ class BlenderModelManager:
             if bpy.context.active_object in self.mesh_objects:
                 nframe.local_origin = bpy.context.active_object.location
             else:
-                nframe.local_origin = self.mesh_objects[0]
+                nframe.local_origin = self.mesh_objects[0].location
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
                 obj_mesh = mesh_obj.to_mesh(bpy.context.scene, True, "PREVIEW")
