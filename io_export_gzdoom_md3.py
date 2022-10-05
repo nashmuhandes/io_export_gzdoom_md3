@@ -31,6 +31,7 @@ bl_info = {
         "category": "Import-Export"}
 
 import bpy, struct, math, time
+from math import floor
 from os.path import basename, splitext
 from collections import OrderedDict
 from struct import pack
@@ -56,8 +57,6 @@ MD3_XYZ_SCALE = 64.0
 
 
 class MD3Vertex:
-    xyz = []
-    normal = 0
     binary_format = "<3hH"
 
     def __init__(self):
@@ -113,9 +112,6 @@ class MD3Vertex:
         file.write(data)
 
 class MD3TexCoord:
-    u = 0.0
-    v = 0.0
-
     binary_format = "<2f"
 
     def __init__(self):
@@ -133,8 +129,6 @@ class MD3TexCoord:
         file.write(data)
 
 class MD3Triangle:
-    indexes = []
-
     binary_format = "<3i"
 
     def __init__(self):
@@ -151,9 +145,6 @@ class MD3Triangle:
         file.write(data)
 
 class MD3Shader:
-    name = ""
-    index = 0
-
     binary_format = "<%dsi" % MAX_QPATH
 
     def __init__(self):
@@ -170,21 +161,6 @@ class MD3Shader:
         file.write(data)
 
 class MD3Surface:
-    ident = ""
-    name = ""
-    flags = 0
-    num_frames = 0
-    num_verts = 0
-    ofs_triangles = 0
-    ofs_shaders = 0
-    ofs_uv = 0
-    ofs_verts = 0
-    ofs_end = 0
-    shader = ""
-    triangles = []
-    uv = []
-    verts = []
-
     binary_format = "<4s%ds10i" % MAX_QPATH  # 1 int, name, then 10 ints
 
     def __init__(self):
@@ -259,10 +235,6 @@ class MD3Surface:
             v.save(file)
 
 class MD3Tag:
-    name = ""
-    origin = []
-    axis = []
-
     binary_format="<%ds3f9f" % MAX_QPATH
 
     def __init__(self):
@@ -293,12 +265,6 @@ class MD3Tag:
         file.write(data)
 
 class MD3Frame:
-    mins = 0
-    maxs = 0
-    local_origin = 0
-    radius = 0.0
-    name = ""
-
     binary_format="<3f3f3ff16s"
 
     def __init__(self):
@@ -329,24 +295,13 @@ class MD3Frame:
         file.write(data)
 
 class MD3Object:
-    # header structure
-    ident = ""          # this is used to identify the file (must be IDP3)
-    version = 0         # the version number of the file (Must be 15)
-    name = ""
-    flags = 0
-    num_skins = 0
-    ofs_frames = 0
-    ofs_tags = 0
-    ofs_surfaces = 0
-    ofs_end = 0
-    frames = []
-    tags = []
-    surfaces = []
-
     binary_format="<4si%ds9i" % MAX_QPATH  # little-endian (<), 17 integers (17i)
 
     def __init__(self):
+        # header structure
+        # this is used to identify the file (must be IDP3)
         self.ident = MD3_IDENT
+        # the version number of the file (Must be 15)
         self.version = MD3_VERSION
         self.name = ""
         self.flags = 0
@@ -451,7 +406,6 @@ class MD3Settings:
 
 # Convert a XYZ vector to an integer vector for conversion to MD3
 def convert_xyz(xyz):
-    from math import floor
     def convert(number, factor):
         return floor(number * factor)
     factors = [MD3_XYZ_SCALE] * 3
@@ -475,7 +429,7 @@ class BlenderSurface:
         # "normal index" is the index of the normal on the normal object, and
         # "normal reference" is a string referring to the array to use when
         # which has the normal to use.
-        self.vertex_refs = {}
+        self.vertex_refs = OrderedDict()
 
         # Vertices (position, normal, and UV) in MD3 binary format, mapped to
         # their indices
@@ -505,7 +459,6 @@ class BlenderSurface:
 class BlenderModelManager:
     def __init__(self, gzdoom, model_name, ref_frame=None, frame_name="MDLA",
                  scale=1, frame_time=0):
-        from math import floor
         self.md3 = MD3Object()
         self.md3.name = model_name
         self.material_surfaces = OrderedDict()
@@ -518,10 +471,7 @@ class BlenderModelManager:
         self.frame_count = self.end_frame - self.start_frame
         self.gzdoom = gzdoom
         # Reference frame - used for initial UV and triangle data
-        if ref_frame is not None:
-            self.ref_frame = ref_frame
-        else:
-            self.ref_frame = self.start_frame
+        self.ref_frame = ref_frame
         self.frame_name = frame_name[0:4]
         if frame_time == 0:
             frame_time = 35 / bpy.context.scene.render.fps
@@ -623,7 +573,7 @@ class BlenderModelManager:
             # Get vertex ID, which is the vertex in MD3 binary format. First,
             # get the vertex position
             vertex = obj_mesh.vertices[vertex_index]
-            vertex_position = vertex.co
+            vertex_position = vertex.co.copy()
             # Set up vertex reference. If the face is flat-shaded, the face
             # normal is used. Otherwise, the vertex normal is used.
             normal_ref = "tessfaces"
@@ -701,7 +651,7 @@ class BlenderModelManager:
                           face.vertices, triangle)
 
     def setup_frames(self):
-        from math import floor, log10
+        from math import log10
         # Add the vertex animations for each frame. Only call this AFTER
         # all the triangle and UV data has been set up.
         self.lock_vertices = True
@@ -884,7 +834,7 @@ class BaseCoder:
 
     def decode(self, number, minlength=1):
         "Decode a base26 number. Takes a number, returns the text."
-        from math import log, floor
+        from math import log
         try:
             digits = floor(log(number, self.base)) + 1
         except ValueError:
@@ -1008,6 +958,7 @@ def print_md3(log,md3,dumpall):
 def save_md3(settings):
     from math import radians
     starttime = time.clock()  # start timer
+    orig_frame = bpy.context.scene.frame_current
     fullpath = splitext(settings.savepath)[0]
     modelname = basename(fullpath)
     logname = modelname + ".log"
@@ -1025,8 +976,10 @@ def save_md3(settings):
     else:
         log = None
     ref_frame = settings.refframe
-    if settings.refframe == -1:
-        ref_frame = bpy.context.scene.frame_current
+    if settings.refframe < 0:
+        ref_frame = orig_frame
+    ref_frame = min(max(ref_frame,
+        bpy.context.scene.frame_start), bpy.context.scene.frame_end)
     message(log, "###################### BEGIN ######################")
     model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame,
                                 settings.framename, settings.scale,
@@ -1051,6 +1004,7 @@ def save_md3(settings):
     print_md3(log, model.md3, dumpall)
     model.save(settings.savepath, settings.modeldef, settings.zscript)
     endtime = time.clock() - starttime
+    bpy.context.scene.frame_set(orig_frame)
     message(log, "Export took {:.3f} seconds".format(endtime))
 
 from bpy.props import *
@@ -1142,7 +1096,6 @@ class ExportMD3(bpy.types.Operator):
         default=0, min=0, soft_min=0)
 
     def draw(self, context):
-        from math import floor
         layout = self.layout
         col = layout.column()
         col.prop(self, "md3name")
