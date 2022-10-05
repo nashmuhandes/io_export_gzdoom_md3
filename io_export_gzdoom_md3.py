@@ -388,7 +388,8 @@ class MD3Object:
         temp_data[2] = str.encode(self.name)
         temp_data[3] = self.flags
         temp_data[4] = len(self.frames)  # self.num_frames
-        temp_data[5] = len(self.tags)  # self.num_tags
+        if len(self.frames) > 0:  # self.num_tags
+            temp_data[5] = floor(len(self.tags) / len(self.frames))
         temp_data[6] = len(self.surfaces)  # self.num_surfaces
         temp_data[7] = self.num_skins
         temp_data[8] = self.ofs_frames
@@ -460,6 +461,7 @@ class BlenderModelManager:
         self.md3.name = model_name
         self.material_surfaces = OrderedDict()
         self.mesh_objects = []
+        self.tag_objects = []
         self.fix_transform = Matrix.Identity(4)
         self.lock_vertices = False
         self.start_frame = bpy.context.scene.frame_start
@@ -691,20 +693,20 @@ class BlenderModelManager:
                         bsurface.surface.verts.append(nvertex)
             for obj_ref in obj_refs.values():
                 obj_ref.object.to_mesh_clear()
+            for tag_obj in self.tag_objects:
+                position = tag_obj.location.copy()
+                orientation = tag_obj.matrix_world.to_3x3().normalized()
+                orientation = self.fix_transform.to_3x3() @ orientation
+                ntag = MD3Tag()
+                ntag.name = tag_obj.name
+                ntag.origin = position
+                ntag.axis[0:3] = orientation[0]
+                ntag.axis[3:6] = orientation[1]
+                ntag.axis[6:9] = orientation[2]
+                self.md3.tags.append(ntag)
 
     def add_tag(self, bobject):
-        bpy.context.scene.frame_set(bpy.context.scene.frame_start)
-        position = bobject.location.copy()
-        position = self.fix_transform @ position
-        orientation = bobject.matrix_world.copy().to_3x3().normalized()
-        orientation = self.fix_transform.to_3x3() @ orientation
-        ntag = MD3Tag()
-        ntag.name = bobject.name
-        ntag.origin = position
-        ntag.axis[0:3] = orientation[0]
-        ntag.axis[3:6] = orientation[1]
-        ntag.axis[6:9] = orientation[2]
-        self.md3.tags.append(ntag)
+        self.tag_objects.append(bobject)
 
     def get_modeldef(self, md3fname):
         model_def = """Model {actor_name}
@@ -804,13 +806,18 @@ class BaseCoder:
 
 
 def print_md3(log,md3,dumpall):
+    tag_count = 0
+    try:
+        tag_count = floor(len(md3.tags) / len(md3.frames))
+    except ZeroDivisionError:
+        tag_count = 0
     message(log,"Header Information")
     message(log,"Ident: " + str(md3.ident))
     message(log,"Version: " + str(md3.version))
     message(log,"Name: " + md3.name)
     message(log,"Flags: " + str(md3.flags))
     message(log,"Number of Frames: " + str(len(md3.frames)))
-    message(log,"Number of Tags: " + str(len(md3.tags)))
+    message(log,"Number of Tags: " + str(tag_count))
     message(log,"Number of Surfaces: " + str(len(md3.surfaces)))
     message(log,"Number of Skins: " + str(md3.num_skins))
     message(log,"Offset Frames: " + str(md3.ofs_frames))
@@ -834,13 +841,19 @@ def print_md3(log,md3,dumpall):
             message(log," Radius: " + str(f.radius))
             message(log," Name: " + f.name)
 
-        message(log,"Tags:")
+        tag_frame = 1
+        tag_index = tag_count
         for t in md3.tags:
+            if tag_index == tag_count and tag_frame <= len(md3.frames):
+                message(log,"Tags (Frame " + str(tag_frame) + "):")
+                tag_index = 0
+                tag_frame += 1
             message(log," Name: " + t.name)
             message(log," Origin: " + vec3_to_string(t.origin))
             message(log," Axis[0]: " + vec3_to_string(t.axis[0:3]))
             message(log," Axis[1]: " + vec3_to_string(t.axis[3:6]))
             message(log," Axis[2]: " + vec3_to_string(t.axis[6:9]))
+            tag_index += 1
 
         message(log,"Surfaces:")
         for s in md3.surfaces:
@@ -886,7 +899,7 @@ def print_md3(log,md3,dumpall):
         if len(surface.triangles) >= MD3_MAX_TRIANGLES:
             message(log,"!Warning: Triangle limit (" + str(len(surface.triangles)) + "/" + str(MD3_MAX_TRIANGLES) + ") reached for surface " + surface.name)
 
-    if len(md3.tags) >= MD3_MAX_TAGS:
+    if tag_count >= MD3_MAX_TAGS:
         message(log,"!Warning: Tag limit (" + str(len(md3.tags)) + "/" + str(MD3_MAX_TAGS) + ") reached for md3!")
     if len(md3.surfaces) >= MD3_MAX_SURFACES:
         message(log,"!Warning: Surface limit (" + str(len(md3.surfaces)) + "/" + str(MD3_MAX_SURFACES) + ") reached for md3!")
