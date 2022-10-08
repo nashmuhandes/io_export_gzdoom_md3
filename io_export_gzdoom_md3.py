@@ -55,8 +55,6 @@ MD3_XYZ_SCALE = 64.0
 
 
 class MD3Vertex:
-    xyz = []
-    normal = 0
     binary_format = "<3hH"
 
     def __init__(self):
@@ -112,9 +110,6 @@ class MD3Vertex:
         file.write(data)
 
 class MD3TexCoord:
-    u = 0.0
-    v = 0.0
-
     binary_format = "<2f"
 
     def __init__(self):
@@ -132,8 +127,6 @@ class MD3TexCoord:
         file.write(data)
 
 class MD3Triangle:
-    indexes = []
-
     binary_format = "<3i"
 
     def __init__(self):
@@ -150,9 +143,6 @@ class MD3Triangle:
         file.write(data)
 
 class MD3Shader:
-    name = ""
-    index = 0
-
     binary_format = "<%dsi" % MAX_QPATH
 
     def __init__(self):
@@ -169,21 +159,6 @@ class MD3Shader:
         file.write(data)
 
 class MD3Surface:
-    ident = ""
-    name = ""
-    flags = 0
-    num_frames = 0
-    num_verts = 0
-    ofs_triangles = 0
-    ofs_shaders = 0
-    ofs_uv = 0
-    ofs_verts = 0
-    ofs_end = 0
-    shader = ""
-    triangles = []
-    uv = []
-    verts = []
-
     binary_format = "<4s%ds10i" % MAX_QPATH  # 1 int, name, then 10 ints
 
     def __init__(self):
@@ -197,11 +172,12 @@ class MD3Surface:
         self.ofs_uv = 0
         self.ofs_verts = 0
         self.ofs_end = 0
-        self.size = 0
         self.shader = MD3Shader()
         self.triangles = []
         self.uv = []
         self.verts = []
+
+        self.size = 0
 
     def get_size(self):
         if self.size > 0:
@@ -258,10 +234,6 @@ class MD3Surface:
             v.save(file)
 
 class MD3Tag:
-    name = ""
-    origin = []
-    axis = []
-
     binary_format="<%ds3f9f" % MAX_QPATH
 
     def __init__(self):
@@ -292,12 +264,6 @@ class MD3Tag:
         file.write(data)
 
 class MD3Frame:
-    mins = 0
-    maxs = 0
-    local_origin = 0
-    radius = 0.0
-    name = ""
-
     binary_format="<3f3f3ff16s"
 
     def __init__(self):
@@ -328,36 +294,27 @@ class MD3Frame:
         file.write(data)
 
 class MD3Object:
-    # header structure
-    ident = ""          # this is used to identify the file (must be IDP3)
-    version = 0         # the version number of the file (Must be 15)
-    name = ""
-    flags = 0
-    num_skins = 0
-    ofs_frames = 0
-    ofs_tags = 0
-    ofs_surfaces = 0
-    ofs_end = 0
-    frames = []
-    tags = []
-    surfaces = []
-
     binary_format="<4si%ds9i" % MAX_QPATH  # little-endian (<), 17 integers (17i)
 
     def __init__(self):
+        # header structure
+        # this is used to identify the file (must be IDP3)
         self.ident = MD3_IDENT
+        # the version number of the file (Must be 15)
         self.version = MD3_VERSION
         self.name = ""
         self.flags = 0
+        self.num_tags = 0
         self.num_skins = 0
         self.ofs_frames = 0
         self.ofs_tags = 0
         self.ofs_surfaces = 0
         self.ofs_end = 0
-        self.size = 0
         self.frames = []
         self.tags = []
         self.surfaces = []
+
+        self.size = 0
 
     def get_size(self):
         if self.size > 0:
@@ -388,8 +345,7 @@ class MD3Object:
         temp_data[2] = str.encode(self.name)
         temp_data[3] = self.flags
         temp_data[4] = len(self.frames)  # self.num_frames
-        if len(self.frames) > 0:  # self.num_tags
-            temp_data[5] = floor(len(self.tags) / len(self.frames))
+        temp_data[5] = self.num_tags
         temp_data[6] = len(self.surfaces)  # self.num_surfaces
         temp_data[7] = self.num_skins
         temp_data[8] = self.ofs_frames
@@ -442,7 +398,7 @@ class BlenderSurface:
         # mesh.loop_triangles, "vertex index" is the index of the vertex on the 
         # face, and "smooth" is a boolean value which specifies which normal
         # should be used (False to use face normal, True to use split normal)
-        self.vertex_refs = {}
+        self.vertex_refs = OrderedDict()
 
         # Vertices (position, normal, and UV) in MD3 binary format, mapped to
         # their indices
@@ -615,6 +571,8 @@ class BlenderModelManager:
         # Add the vertex animations for each frame. Only call this AFTER
         # all the triangle and UV data has been set up.
         self.lock_vertices = True
+        self.md3.num_tags = (
+            len(self.tag_objects) if self.frame_count > 0 else 0)
         for frame in range(self.start_frame, self.end_frame):
             bpy.context.scene.frame_set(frame)
             obj_refs = {}
@@ -706,6 +664,8 @@ class BlenderModelManager:
                 self.md3.tags.append(ntag)
 
     def add_tag(self, bobject):
+        if bobject in self.tag_objects:
+            return None
         self.tag_objects.append(bobject)
 
     def get_modeldef(self, md3fname):
@@ -806,18 +766,13 @@ class BaseCoder:
 
 
 def print_md3(log,md3,dumpall):
-    tag_count = 0
-    try:
-        tag_count = floor(len(md3.tags) / len(md3.frames))
-    except ZeroDivisionError:
-        tag_count = 0
     message(log,"Header Information")
     message(log,"Ident: " + str(md3.ident))
     message(log,"Version: " + str(md3.version))
     message(log,"Name: " + md3.name)
     message(log,"Flags: " + str(md3.flags))
     message(log,"Number of Frames: " + str(len(md3.frames)))
-    message(log,"Number of Tags: " + str(tag_count))
+    message(log,"Number of Tags: " + str(md3.num_tags))
     message(log,"Number of Surfaces: " + str(len(md3.surfaces)))
     message(log,"Number of Skins: " + str(md3.num_skins))
     message(log,"Offset Frames: " + str(md3.ofs_frames))
@@ -842,9 +797,9 @@ def print_md3(log,md3,dumpall):
             message(log," Name: " + f.name)
 
         tag_frame = 1
-        tag_index = tag_count
+        tag_index = md3.num_tags
         for t in md3.tags:
-            if tag_index == tag_count and tag_frame <= len(md3.frames):
+            if tag_index == md3.num_tags and tag_frame <= len(md3.frames):
                 message(log,"Tags (Frame " + str(tag_frame) + "):")
                 tag_index = 0
                 tag_frame += 1
@@ -899,7 +854,7 @@ def print_md3(log,md3,dumpall):
         if len(surface.triangles) >= MD3_MAX_TRIANGLES:
             message(log,"!Warning: Triangle limit (" + str(len(surface.triangles)) + "/" + str(MD3_MAX_TRIANGLES) + ") reached for surface " + surface.name)
 
-    if tag_count >= MD3_MAX_TAGS:
+    if md3.num_tags >= MD3_MAX_TAGS:
         message(log,"!Warning: Tag limit (" + str(len(md3.tags)) + "/" + str(MD3_MAX_TAGS) + ") reached for md3!")
     if len(md3.surfaces) >= MD3_MAX_SURFACES:
         message(log,"!Warning: Surface limit (" + str(len(md3.surfaces)) + "/" + str(MD3_MAX_SURFACES) + ") reached for md3!")
