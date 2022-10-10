@@ -145,17 +145,14 @@ class MD3Triangle:
 class MD3Shader:
     binary_format = "<%dsi" % MAX_QPATH
 
-    def __init__(self):
-        self.name = ""
-        self.index = 0
-
     @staticmethod
     def get_size():
         return struct.calcsize(MD3Shader.binary_format)
 
-    def save(self, file):
-        name = str.encode(self.name)
-        data = struct.pack(self.binary_format, name, self.index)
+    @staticmethod
+    def save(index, name, file):
+        name = str.encode(name)
+        data = struct.pack(MD3Shader.binary_format, name, index)
         file.write(data)
 
 class MD3Surface:
@@ -172,7 +169,7 @@ class MD3Surface:
         self.ofs_uv = 0
         self.ofs_verts = 0
         self.ofs_end = 0
-        self.shader = MD3Shader()
+        self.shaders = []
         self.triangles = []
         self.uv = []
         self.verts = []
@@ -185,18 +182,22 @@ class MD3Surface:
         # Triangles (after header)
         self.ofs_triangles = struct.calcsize(self.binary_format)
 
-        # Shader (after triangles)
+        # Shaders (after triangles)
         self.ofs_shaders = self.ofs_triangles + (
             MD3Triangle.get_size() * len(self.triangles))
 
-        # UVs (after shader)
-        self.ofs_uv = self.ofs_shaders + MD3Shader.get_size()
+        # UVs (after shaders)
+        self.ofs_uv = self.ofs_shaders + (
+            MD3Shader.get_size() * len(self.shaders))
 
         # Vertices for each frame (after UVs)
-        self.ofs_verts = self.ofs_uv + MD3TexCoord.get_size() * len(self.uv)
+        self.ofs_verts = self.ofs_uv + (
+            MD3TexCoord.get_size() * len(self.uv))
 
         # End (after vertices)
-        self.ofs_end = self.ofs_verts + MD3Vertex.get_size() * len(self.verts)
+        self.ofs_end = self.ofs_verts + (
+            MD3Vertex.get_size() * len(self.verts))
+
         self.size = self.ofs_end
         return self.ofs_end
 
@@ -207,7 +208,7 @@ class MD3Surface:
         temp_data[1] = str.encode(self.name)
         temp_data[2] = self.flags
         temp_data[3] = self.num_frames
-        temp_data[4] = 1  # len(self.shaders) # self.num_shaders
+        temp_data[4] = len(self.shaders)  # self.num_shaders
         temp_data[5] = self.num_verts
         temp_data[6] = len(self.triangles)  # self.num_triangles
         temp_data[7] = self.ofs_triangles
@@ -223,7 +224,8 @@ class MD3Surface:
             t.save(file)
 
         # save the shaders
-        self.shader.save(file)
+        for index, shader in enumerate(self.shaders):
+            MD3Shader.save(index, shader, file)
 
         # save the uv info
         for u in self.uv:
@@ -384,13 +386,17 @@ def convert_xyz(xyz):
 
 # A class to help manage individual surfaces within a model
 class BlenderSurface:
-    def __init__(self, material):
+    def __init__(self, material, shaders=[]):
         self.material = material  # Blender material name -> Shader
         self.surface = MD3Surface()  # MD3 surface
         # Set names for surface and its material, both of which are named after
         # the material it uses
         self.surface.name = material
-        self.surface.shader.name = material
+        if len(shaders) == 0:
+            self.surface.shaders = [material]
+        else:
+            # TODO: Handle "Use material name"
+            self.surface.shaders = shaders
 
         # {Mesh object: [(triangle index, vertex index, smooth), ...]}
         # Where "Mesh object" is the NAME of the object from which the mesh was
@@ -816,18 +822,16 @@ def print_md3(log,md3,dumpall):
             message(log," Name: " + s.name)
             message(log," Flags: " + str(s.flags))
             message(log," # of Frames: " + str(s.num_frames))
-            # message(log," # of Shaders: " + str(s.num_shaders))
+            message(log," # of Shaders: " + str(len(s.shaders)))
             message(log," # of Verts: " + str(s.num_verts))
             message(log," # of Triangles: " + str(len(s.triangles)))
             message(log," Offset Triangles: " + str(s.ofs_triangles))
             message(log," Offset UVs: " + str(s.ofs_uv))
             message(log," Offset Verts: " + str(s.ofs_verts))
             message(log," Offset End: " + str(s.ofs_end))
-            #message(log," Shaders:")
-            #for shader in s.shaders:
-                #message(log,"  Name: " + shader.name)
-                #message(log,"  Index: " + str(shader.index))
-            message(log," Shader name: " + s.shader.name)
+            message(log," Shaders:")
+            for index, shader in enumerate(s.shaders):
+                message(log,"  \"{}\" ({})".format(shader, index))
             message(log," Triangles:")
             for tri in s.triangles:
                 message(log,"  Indexes: " + vec3_to_string(tri.indexes, True))
@@ -844,11 +848,11 @@ def print_md3(log,md3,dumpall):
     vert_count = 0
     tri_count = 0
     for surface in md3.surfaces:
-        shader_count += 1 # surface.num_shaders
+        shader_count += len(surface.shaders)
         tri_count += len(surface.triangles)
         vert_count += surface.num_verts
-        # if surface.num_shaders >= MD3_MAX_SHADERS:
-            # message(log,"!Warning: Shader limit (" + str(surface.num_shaders) + "/" + str(MD3_MAX_SHADERS) + ") reached for surface " + surface.name)
+        if len(surface.shaders) >= MD3_MAX_SHADERS:
+            message(log,"!Warning: Shader limit (" + str(len(surface.shaders)) + "/" + str(MD3_MAX_SHADERS) + ") reached for surface " + surface.name)
         if surface.num_verts >= MD3_MAX_VERTICES:
             message(log,"!Warning: Vertex limit (" + str(surface.num_verts) + "/" + str(MD3_MAX_VERTICES) + ") reached for surface " + surface.name)
         if len(surface.triangles) >= MD3_MAX_TRIANGLES:
