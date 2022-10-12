@@ -33,11 +33,12 @@ bl_info = {
 
 import bpy, struct, math, time
 from bpy_extras.io_utils import ExportHelper
-from os.path import basename, splitext
-from collections import OrderedDict
-from struct import pack
+from collections import namedtuple, OrderedDict
+from itertools import starmap
+from math import floor, log10
 from mathutils import Matrix, Vector
-from math import floor
+from os.path import basename, splitext
+from struct import pack
 
 
 MAX_QPATH = 64
@@ -291,7 +292,7 @@ class MD3Frame:
         temp_data[7] = self.local_origin[1]
         temp_data[8] = self.local_origin[2]
         temp_data[9] = self.radius
-        temp_data[10] = str.encode("frame" + self.name)
+        temp_data[10] = self.name.encode()
         data = struct.pack(self.binary_format, *temp_data)
         file.write(data)
 
@@ -427,8 +428,19 @@ class BlenderModelManager:
         self.fix_transform = Matrix.Identity(4)
         self.lock_vertices = False
         self.start_frame = bpy.context.scene.frame_start
-        self.end_frame = bpy.context.scene.frame_end + 1
-        self.frame_count = self.end_frame - self.start_frame
+        self.end_frame = bpy.context.scene.frame_end
+        self.frame_count = self.end_frame - self.start_frame + 1
+        KeyFrameName = namedtuple("KeyFrameName", "frame name")
+        self.keyframes = sorted(map(lambda m: KeyFrameName(m.frame, m.name),
+                                    bpy.context.scene.timeline_markers),
+                                key=lambda m: m.frame)
+        keyframes = list(map(lambda f: f.frame, self.keyframes))
+        keyframes.append(bpy.context.scene.frame_end)
+        if len(keyframes) > 1:
+            self.frame_digits = floor(log10(max(starmap(
+                lambda a, b: b - a, zip(keyframes, keyframes[1:])))))
+        else:
+            self.frame_digits = floor(log10(self.frame_count - 1))
         self.gzdoom = gzdoom
         # Reference frame - used for initial UV and triangle data
         if ref_frame is not None:
@@ -571,22 +583,27 @@ class BlenderModelManager:
         bsurface.surface.triangles.append(ntri)
 
     def setup_frames(self):
-        from math import log10
-        from collections import namedtuple
         ObjectReference = namedtuple("ObjectReference", "object mesh")
         # Add the vertex animations for each frame. Only call this AFTER
         # all the triangle and UV data has been set up.
         self.lock_vertices = True
         self.md3.num_tags = (
             len(self.tag_objects) if self.frame_count > 0 else 0)
-        for frame in range(self.start_frame, self.end_frame):
+        for frame in range(self.start_frame, self.end_frame + 1):
             bpy.context.scene.frame_set(frame)
             obj_refs = {}
             nframe = MD3Frame()
-            frame_digits = floor(log10(self.end_frame - self.start_frame)) + 1
-            frame_num = frame - self.start_frame
-            nframe.name = (("{:0" + str(frame_digits) + "d}")
-                           .format(frame_num))
+            last_keyframe = next(filter(
+                lambda f: f.frame <= frame, reversed(self.keyframes)), None)
+            frame_num = frame - (
+                last_keyframe.frame
+                if last_keyframe is not None
+                else self.start_frame)
+            frame_suffix = (("{:0" + str(self.frame_digits) + "d}")
+                             .format(frame_num))
+            nframe.name = (
+                "frame" + frame_suffix if last_keyframe is None
+                else last_keyframe.name + frame_suffix)
             if len(self.mesh_objects) == 0:
                 nframe.local_origin = Vector((0, 0, 0))
                 nframe.mins = Vector((0, 0, 0))
@@ -1014,7 +1031,6 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         default=0, min=0, soft_min=0)
 
     def draw(self, context):
-        from math import floor
         layout = self.layout
         col = layout.column()
         col.prop(self, "md3name")
