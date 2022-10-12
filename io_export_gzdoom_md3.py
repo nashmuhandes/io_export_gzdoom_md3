@@ -440,7 +440,10 @@ class BlenderModelManager:
             self.frame_digits = floor(log10(max(starmap(
                 lambda a, b: b - a, zip(keyframes, keyframes[1:])))))
         else:
-            self.frame_digits = floor(log10(self.frame_count - 1))
+            if self.frame_digits - 1 == 0:
+                self.frame_digits = 1
+            else:
+                self.frame_digits = floor(log10(self.frame_count - 1))
         self.gzdoom = gzdoom
         # Reference frame - used for initial UV and triangle data
         if ref_frame is not None:
