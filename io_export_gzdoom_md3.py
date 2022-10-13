@@ -33,7 +33,7 @@ bl_info = {
 import bpy, struct, math, time
 from collections import OrderedDict, namedtuple
 from itertools import starmap
-from math import floor, log10
+from math import floor, log10, radians
 from mathutils import Matrix, Vector
 from os.path import basename, splitext
 from struct import pack
@@ -761,15 +761,18 @@ class BlenderModelManager:
             for obj_mesh in obj_meshes.values():
                 bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
             for tag_obj in self.tag_objects:
-                position = tag_obj.location.copy()
-                orientation = tag_obj.matrix_world.to_3x3().normalized()
-                orientation = self.fix_transform.to_3x3() * orientation
+                position, rotation, scale = tag_obj.matrix_world.decompose()
+                fix_transform = self.fix_transform.to_3x3()
+                position = fix_transform * position
+                fix_transform *= Matrix.Rotation(radians(-90), 3, 'Z')
+                fix_transform *= Matrix.Rotation(radians(180), 3, 'X')
+                rotation = fix_transform * rotation.to_matrix()
                 ntag = MD3Tag()
                 ntag.name = tag_obj.name
                 ntag.origin = position
-                ntag.axis[0:3] = orientation[0]
-                ntag.axis[3:6] = orientation[1]
-                ntag.axis[6:9] = orientation[2]
+                ntag.axis[0:3] = rotation[0]
+                ntag.axis[3:6] = rotation[1]
+                ntag.axis[6:9] = rotation[2]
                 self.md3.tags.append(ntag)
 
     def add_tag(self, bobject):
@@ -976,7 +979,6 @@ def print_md3(log,md3,dumpall):
 
 # Main function
 def save_md3(settings):
-    from math import radians
     starttime = time.clock()  # start timer
     orig_frame = bpy.context.scene.frame_current
     fullpath = splitext(settings.savepath)[0]
