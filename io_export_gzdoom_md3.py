@@ -35,7 +35,7 @@ import bpy, struct, math, time
 from bpy_extras.io_utils import ExportHelper
 from collections import namedtuple, OrderedDict
 from itertools import starmap
-from math import floor, log10
+from math import floor, log10, radians
 from mathutils import Matrix, Vector
 from os.path import basename, splitext
 from struct import pack
@@ -678,15 +678,18 @@ class BlenderModelManager:
             for obj_ref in obj_refs.values():
                 obj_ref.object.to_mesh_clear()
             for tag_obj in self.tag_objects:
-                position = tag_obj.location.copy()
-                orientation = tag_obj.matrix_world.to_3x3().normalized()
-                orientation = self.fix_transform.to_3x3() @ orientation
+                position, rotation, scale = tag_obj.matrix_world.decompose()
+                fix_transform = self.fix_transform.to_3x3()
+                position = fix_transform @ position
+                fix_transform @= Matrix.Rotation(radians(-90), 3, 'Z')
+                fix_transform @= Matrix.Rotation(radians(180), 3, 'X')
+                rotation = fix_transform @ rotation.to_matrix()
                 ntag = MD3Tag()
                 ntag.name = tag_obj.name
                 ntag.origin = position
-                ntag.axis[0:3] = orientation[0]
-                ntag.axis[3:6] = orientation[1]
-                ntag.axis[6:9] = orientation[2]
+                ntag.axis[0:3] = rotation[0]
+                ntag.axis[3:6] = rotation[1]
+                ntag.axis[6:9] = rotation[2]
                 self.md3.tags.append(ntag)
 
     def add_tag(self, bobject):
@@ -896,7 +899,6 @@ def save_md3(
         orig_frame=None, gzdoom=True, sprite_name=False, sprite_tics=1,
         offsetx=0, offsety=0, offsetz=0, scale=1, gen_actordef=False,
         gen_modeldef=False):
-    from math import radians
     starttime = time.perf_counter()  # start timer
     fullpath = splitext(filepath)[0]
     modelname = basename(fullpath)
