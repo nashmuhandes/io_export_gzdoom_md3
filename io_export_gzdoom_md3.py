@@ -997,11 +997,10 @@ def save_md3(settings):
         log.clear()
     else:
         log = None
-    ref_frame = settings.refframe
-    if settings.refframe < 0:
+    if settings.refframe is None:
         ref_frame = orig_frame
-    ref_frame = min(max(ref_frame,
-        bpy.context.scene.frame_start), bpy.context.scene.frame_end)
+    else:
+        ref_frame = settings.refframe
     message(log, "###################### BEGIN ######################")
     model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame,
                                 settings.framename, settings.scale,
@@ -1084,14 +1083,22 @@ class ExportMD3(bpy.types.Operator):
         description="Transition scene along z axis",
         default=0.0,
         precision=5)
+    md3userefframe = BoolProperty(
+        name="Use Reference Frame",
+        description="Use a specific frame other than the current frame as the "
+            "\"reference frame\". If there is more than one vertex at a given "
+            "position at any given time in the animation, those vertices may "
+            "be merged together. You can use a \"reference frame\" to choose "
+            "a specific animation frame to use as a reference for vertices "
+            "so that they are not merged together unexpectedly. If not "
+            "specified, the \"reference frame\" is the current frame in the "
+            "current scene",
+        default=True)
     md3refframe = IntProperty(
         name="Reference Frame",
-        description="The frame to use for vertices, UVs, and triangles. May "
-            "be useful in case you have an animation where the model has an "
-            "animation where it starts off closed and it 'opens up'. A value "
-            "of -1 uses the current frame in the current scene",
-        default=-1,
-        min=-1)
+        description="The frame to use for vertices, UVs, and triangles. If "
+        "not specified, uses the current frame in the current scene",
+        default=0)
     md3forgzdoom = BoolProperty(
         name="Export for GZDoom",
         description="Export the model for GZDoom; Fixes normals pointing "
@@ -1130,7 +1137,12 @@ class ExportMD3(bpy.types.Operator):
         row.prop(self, "md3offsetx", "X")
         row.prop(self, "md3offsety", "Y")
         row.prop(self, "md3offsetz", "Z")
-        col.prop(self, "md3refframe")
+        row = col.row()
+        if self.md3userefframe:
+            row.prop(self, "md3userefframe", text="")
+            row.prop(self, "md3refframe")
+        else:
+            row.prop(self, "md3userefframe")
         col.prop(self, "md3forgzdoom")
         col.prop(self, "md3genactordef")
         col.prop(self, "md3genmodeldef")
@@ -1148,20 +1160,23 @@ class ExportMD3(bpy.types.Operator):
             col.label(stats)
 
     def execute(self, context):
-        settings = MD3Settings(savepath=self.properties.filepath,
-                               name=self.properties.md3name,
-                               logtype=self.properties.md3logtype,
-                               dumpall=self.properties.md3dumpall,
-                               scale=self.properties.md3scale,
-                               offsetx=self.properties.md3offsetx,
-                               offsety=self.properties.md3offsety,
-                               offsetz=self.properties.md3offsetz,
-                               refframe=self.properties.md3refframe,
-                               gzdoom=self.properties.md3forgzdoom,
-                               modeldef=self.properties.md3genmodeldef,
-                               zscript=self.properties.md3genactordef,
-                               framename=self.properties.md3framename,
-                               frametime=self.properties.md3frametime)
+        settings = MD3Settings(
+            savepath=self.properties.filepath,
+            name=self.properties.md3name,
+            logtype=self.properties.md3logtype,
+            dumpall=self.properties.md3dumpall,
+            scale=self.properties.md3scale,
+            offsetx=self.properties.md3offsetx,
+            offsety=self.properties.md3offsety,
+            offsetz=self.properties.md3offsetz,
+            refframe=(self.properties.md3refframe
+                if self.properties.md3userefframe
+                else None),
+            gzdoom=self.properties.md3forgzdoom,
+            modeldef=self.properties.md3genmodeldef,
+            zscript=self.properties.md3genactordef,
+            framename=self.properties.md3framename,
+            frametime=self.properties.md3frametime)
         save_md3(settings)
         return {'FINISHED'}
 
