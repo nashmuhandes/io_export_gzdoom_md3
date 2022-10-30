@@ -96,7 +96,7 @@ class MD3Vertex:
 
         # Export for Quake 3 rather than GZDoom
         if not gzdoom:
-            if (x == 0.0) & (y == 0.0):
+            if (x == 0.0) and (y == 0.0):
                 if z > 0.0:
                     return 0
                 else:
@@ -1051,6 +1051,12 @@ class ExportMD3(bpy.types.Operator):
     ]
 
     filename_ext = ".md3"
+    filter_glob = StringProperty(
+        default="*.md3",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
     filepath = StringProperty(
         subtype='FILE_PATH',
         name="File Path",
