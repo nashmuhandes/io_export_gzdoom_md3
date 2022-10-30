@@ -31,6 +31,7 @@ bl_info = {
         "category": "Import-Export"}
 
 import bpy, struct, math, time
+from bpy_extras.io_utils import ExportHelper
 from collections import OrderedDict, namedtuple
 from itertools import starmap
 from math import floor, log10, radians
@@ -1038,7 +1039,7 @@ def save_md3(settings):
 
 from bpy.props import *
 
-class ExportMD3(bpy.types.Operator):
+class ExportMD3(bpy.types.Operator, ExportHelper):
     '''Export to .md3'''
     bl_idname = "export.md3"
     bl_label = 'Export MD3'
@@ -1057,12 +1058,6 @@ class ExportMD3(bpy.types.Operator):
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
 
-    filepath = StringProperty(
-        subtype='FILE_PATH',
-        name="File Path",
-        description="Filepath for exporting",
-        maxlen=1024,
-        default="")
     md3name = StringProperty(
         name="MD3 Name",
         description="MD3 header name / skin path (64 bytes)",
@@ -1193,11 +1188,6 @@ class ExportMD3(bpy.types.Operator):
             frametime=self.properties.md3frametime)
         save_md3(settings)
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        wm = context.window_manager
-        wm.fileselect_add(self)
-        return {'RUNNING_MODAL'}
 
     @classmethod
     def poll(cls, context):
