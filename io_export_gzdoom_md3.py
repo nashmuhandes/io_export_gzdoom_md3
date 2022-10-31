@@ -425,6 +425,7 @@ class BlenderModelManager:
         self.material_surfaces = OrderedDict()
         self.mesh_objects = []
         self.tag_objects = []
+        self.tag_renames = {}
         self.fix_transform = Matrix.Identity(4)
         self.lock_vertices = False
         self.start_frame = bpy.context.scene.frame_start
@@ -692,9 +693,16 @@ class BlenderModelManager:
                 ntag.axis[6:9] = rotation[2]
                 self.md3.tags.append(ntag)
 
-    def add_tag(self, bobject):
+    def add_tag(self, bobject, strip_suffix=False):
         if bobject in self.tag_objects:
             return None
+        if strip_suffix:
+            suffix_index = bobject.name.rfind(".")
+            if suffix_index >= 0:
+                suffix_text = bobject.name[suffix_index+1:]
+                if suffix_text.isdecimal():
+                    desuffixed = bobject.name[:suffix_index]
+                    self.tag_renames[bobject.name] = desuffixed
         self.tag_objects.append(bobject)
 
     def get_modeldef(self, md3fname):
