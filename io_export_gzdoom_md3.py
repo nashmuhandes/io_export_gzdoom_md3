@@ -915,8 +915,7 @@ def save_md3(
         log.clear()
     else:
         log = None
-    ref_frame = max(bpy.context.scene.frame_start, ref_frame)
-    if ref_frame == -1:
+    if ref_frame is None:
         ref_frame = orig_frame
     message(log, "###################### BEGIN ######################")
     model = BlenderModelManager(
@@ -1002,14 +1001,22 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         description="Transition scene along z axis",
         default=0.0,
         precision=5)
+    use_ref_frame: bpy.props.BoolProperty(
+        name="Use Reference Frame",
+        description="Use a specific frame other than the current frame as the "
+            "\"reference frame\". If there is more than one vertex at a given "
+            "position at any given time in the animation, those vertices may "
+            "be merged together. You can use a \"reference frame\" to choose "
+            "a specific animation frame to use as a reference for vertices "
+            "so that they are not merged together unexpectedly. If not "
+            "specified, the \"reference frame\" is the current frame in the "
+            "current scene",
+        default=True)
     ref_frame: bpy.props.IntProperty(
         name="Reference Frame",
-        description="The frame to use for vertices, UVs, and triangles. May "
-            "be useful in case you have an animation where the model has an "
-            "animation where it starts off closed and it 'opens up'. A value "
-            "of -1 uses the current frame in the current scene",
-        default=-1,
-        min=-1)
+        description="The frame to use for vertices, UVs, and triangles. If "
+        "not specified, uses the current frame in the current scene",
+        default=0)
     gzdoom: bpy.props.BoolProperty(
         name="Export for GZDoom",
         description="Export the model for GZDoom; Fixes normals pointing "
@@ -1048,7 +1055,12 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         row.prop(self, "offsetx", text="X")
         row.prop(self, "offsety", text="Y")
         row.prop(self, "offsetz", text="Z")
-        col.prop(self, "ref_frame")
+        row = col.row()
+        if self.use_ref_frame:
+            row.prop(self, "use_ref_frame", text="")
+            row.prop(self, "ref_frame")
+        else:
+            row.prop(self, "use_ref_frame")
         col.prop(self, "gzdoom")
         col.prop(self, "gen_actordef")
         col.prop(self, "gen_modeldef")
@@ -1085,6 +1097,8 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         ))
         settings["depsgraph"] = context.evaluated_depsgraph_get()
         settings["orig_frame"] = bpy.context.scene.frame_current
+        if not settings["use_ref_frame"]: settings["ref_frame"] = None
+        del settings["use_ref_frame"]  # Will cause an error otherwise
         save_md3(**settings)
         return {'FINISHED'}
 
