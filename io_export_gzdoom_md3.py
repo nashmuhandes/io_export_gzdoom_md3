@@ -95,7 +95,7 @@ class MD3Vertex:
 
         # Export for Quake 3 rather than GZDoom
         if not gzdoom:
-            if (x == 0.0) & (y == 0.0):
+            if (x == 0.0) and (y == 0.0):
                 if z > 0.0:
                     return 0
                 else:
@@ -975,6 +975,11 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
 
     filename_ext = ".md3"  # Used by ExportHelper
     # filepath is defined by ExportHelper
+    filter_glob: bpy.props.StringProperty(
+        default="*.md3",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
     md3name: bpy.props.StringProperty(
         name="MD3 Name",
         description="MD3 header name / skin path (64 bytes)",
@@ -1101,12 +1106,13 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
             "log_type_options",
             "check_existing",
             "bl_idname",
-            "bl_label"
+            "bl_label",
+            "use_ref_frame",
+            "filter_glob",
         ))
         settings["depsgraph"] = context.evaluated_depsgraph_get()
         settings["orig_frame"] = bpy.context.scene.frame_current
-        if not settings["use_ref_frame"]: settings["ref_frame"] = None
-        del settings["use_ref_frame"]  # Will cause an error otherwise
+        if not self.use_ref_frame: settings["ref_frame"] = None
         save_md3(**settings)
         return {'FINISHED'}
 
