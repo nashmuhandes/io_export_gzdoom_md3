@@ -615,9 +615,10 @@ class BlenderModelManager:
                 self.md3.frames.append(nframe)
                 continue
             if bpy.context.active_object in self.mesh_objects:
-                nframe.local_origin = bpy.context.active_object.location
+                nframe.local_origin = (
+                    bpy.context.active_object.location.copy())
             elif len(self.mesh_objects) > 0:
-                nframe.local_origin = self.mesh_objects[0].location
+                nframe.local_origin = self.mesh_objects[0].location.copy()
             nframe_bounds_set = False
             for mesh_obj in self.mesh_objects:
                 mesh_obj = mesh_obj.evaluated_get(self.depsgraph)
