@@ -32,7 +32,7 @@ bl_info = {
         "category": "Import-Export"}
 
 import bpy, struct, math, time
-from bpy_extras.io_utils import ExportHelper
+from bpy_extras.io_utils import ExportHelper, axis_conversion
 from collections import namedtuple, OrderedDict
 from itertools import starmap
 from math import floor, log10, radians
@@ -670,12 +670,15 @@ class BlenderModelManager:
             for obj_ref in obj_refs.values():
                 obj_ref.object.to_mesh_clear()
             for tag_obj in self.tag_objects:
-                position, rotation, scale = tag_obj.matrix_world.decompose()
-                fix_transform = self.fix_transform.to_3x3()
-                position = fix_transform @ position
-                fix_transform @= Matrix.Rotation(radians(-90), 3, 'Z')
-                fix_transform @= Matrix.Rotation(radians(180), 3, 'X')
-                rotation = fix_transform @ rotation.to_matrix()
+                position, rotation, _ = tag_obj.matrix_world.decompose()
+                world_transfix = self.fix_transform.to_3x3()
+                # X axis in MD3 is forward, and world_transfix rotates by -90
+                local_transfix = Matrix.Rotation(radians(90), 3, 'Z')
+                position = world_transfix @ position
+                # Inverting the quaternion makes axes consistent between
+                # Blender and MD3
+                rotation = rotation.inverted().to_matrix()
+                rotation = world_transfix @ rotation @ local_transfix
                 ntag = MD3Tag()
                 ntag.name = tag_obj.name
                 ntag.origin = position
@@ -924,7 +927,7 @@ def save_md3(
     # Set up "fix" transformation matrix
     scale_fix = Matrix.Scale(scale, 4)
     pos_fix = Matrix.Translation((offsetx, offsety, offsetz))
-    rot_fix = Matrix.Rotation(radians(90.0), 4, 'Z')
+    rot_fix = axis_conversion(to_forward='X').to_4x4()
     # @ operator is used for matrix multiplication
     model.fix_transform = model.fix_transform @ scale_fix @ pos_fix @ rot_fix
     # Add objects to model manager
