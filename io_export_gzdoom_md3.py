@@ -31,7 +31,12 @@ bl_info = {
         "category": "Import-Export"}
 
 import bpy, struct, math, time
-from bpy_extras.io_utils import ExportHelper
+from bpy.props import *
+from bpy_extras.io_utils import (
+    ExportHelper,
+    axis_conversion,
+    orientation_helper_factory,
+)
 from collections import OrderedDict, namedtuple
 from itertools import starmap
 from math import floor, log10, radians
@@ -375,37 +380,6 @@ def message(log,msg):
     else:
         print(msg)
 
-class MD3Settings:
-    def __init__(self,
-                 savepath,
-                 name,
-                 logtype,
-                 dumpall=False,
-                 scale=1.0,
-                 offsetx=0.0,
-                 offsety=0.0,
-                 offsetz=0.0,
-                 refframe=0,
-                 gzdoom=True,
-                 modeldef=False,
-                 zscript=False,
-                 framename="MDLA",
-                 frametime=0):
-        self.savepath = savepath
-        self.name = name
-        self.logtype = logtype
-        self.dumpall = dumpall
-        self.scale = scale
-        self.offsetx = offsetx
-        self.offsety = offsety
-        self.offsetz = offsetz
-        self.refframe = refframe
-        self.gzdoom = gzdoom
-        self.modeldef = modeldef
-        self.zscript = zscript
-        self.framename = framename
-        self.frametime = frametime
-
 
 # Convert a XYZ vector to an integer vector for conversion to MD3
 def convert_xyz(xyz):
@@ -713,19 +687,9 @@ class BlenderModelManager:
                     # Check each coordinate individually so that the mins/maxs
                     # form a bounding box around the geometry
                     # First, check mins
-                    if vertex.co[0] < nframe.mins[0]:
-                        nframe.mins[0] = vertex.co[0]
-                    if vertex.co[1] < nframe.mins[1]:
-                        nframe.mins[1] = vertex.co[1]
-                    if vertex.co[2] < nframe.mins[2]:
-                        nframe.mins[2] = vertex.co[2]
+                    nframe.mins = Vector(map(min, nframe.mins, vertex.co))
                     # Check maxs
-                    if vertex.co[0] > nframe.maxs[0]:
-                        nframe.maxs[0] = vertex.co[0]
-                    if vertex.co[1] > nframe.maxs[1]:
-                        nframe.maxs[1] = vertex.co[1]
-                    if vertex.co[2] > nframe.maxs[2]:
-                        nframe.maxs[2] = vertex.co[2]
+                    nframe.maxs = Vector(map(max, nframe.maxs, vertex.co))
                 nframe.radius = max(nframe.mins.length, nframe.maxs.length)
                 # Add mesh to dict
                 obj_meshes[mesh_obj.name] = obj_mesh
@@ -764,12 +728,15 @@ class BlenderModelManager:
             for obj_mesh in obj_meshes.values():
                 bpy.data.meshes.remove(obj_mesh)  # mesh_obj.to_mesh_clear()
             for tag_obj in self.tag_objects:
-                position, rotation, scale = tag_obj.matrix_world.decompose()
-                fix_transform = self.fix_transform.to_3x3()
-                position = fix_transform * position
-                fix_transform *= Matrix.Rotation(radians(-90), 3, 'Z')
-                fix_transform *= Matrix.Rotation(radians(180), 3, 'X')
-                rotation = fix_transform * rotation.to_matrix()
+                tag_transform = self.fix_transform * tag_obj.matrix_world
+                position, rotation, _ = tag_transform.decompose()
+                # Makes the 'X' axis point forwards, assuming the tag is an
+                # empty, shown as 'Arrows' with the 'Y' pointing forwards.
+                local_transfix = Matrix.Rotation(radians(90), 3, 'Z')
+                rotation = rotation.to_matrix() * local_transfix
+                # MD3 tag axes are column-major, and
+                # Blender matrix axes are row-major
+                rotation.transpose()
                 ntag = MD3Tag()
                 ntag.name = tag_obj.name
                 ntag.origin = position
@@ -988,38 +955,52 @@ def print_md3(log,md3,dumpall):
     message(log,"Total Vertices: " + str(vert_count))
 
 # Main function
-def save_md3(settings):
+def save_md3(filepath,
+            md3name,
+            md3logtype,
+            md3dumpall,
+            md3scale,
+            md3offsetx,
+            md3offsety,
+            md3offsetz,
+            ref_frame,
+            md3forgzdoom,
+            md3genmodeldef,
+            md3genactordef,
+            md3framename,
+            md3frametime,
+            axis_forward,
+            axis_up):
     starttime = time.clock()  # start timer
     orig_frame = bpy.context.scene.frame_current
-    fullpath = splitext(settings.savepath)[0]
+    fullpath = splitext(filepath)[0]
     modelname = basename(fullpath)
     logname = modelname + ".log"
     logfpath = fullpath + ".log"
-    if settings.name == "":
-        settings.name = modelname
-    dumpall = settings.dumpall
-    if settings.logtype == "append":
+    if md3name == "":
+        md3name = modelname
+    dumpall = md3dumpall
+    if md3logtype == "append":
         log = open(logfpath,"a")
-    elif settings.logtype == "overwrite":
+    elif md3logtype == "overwrite":
         log = open(logfpath,"w")
-    elif settings.logtype == "blender":
+    elif md3logtype == "blender":
         log = bpy.data.texts.new(logname)
         log.clear()
     else:
         log = None
-    if settings.refframe is None:
+    if ref_frame is None:
         ref_frame = orig_frame
-    else:
-        ref_frame = settings.refframe
     message(log, "###################### BEGIN ######################")
-    model = BlenderModelManager(settings.gzdoom, settings.name, ref_frame,
-                                settings.framename, settings.scale,
-                                settings.frametime)
+    model = BlenderModelManager(md3forgzdoom, md3name, ref_frame,
+                                md3framename, md3scale,
+                                md3frametime)
     # Set up fix transformation matrix
-    model.fix_transform *= Matrix.Scale(settings.scale, 4)
+    model.fix_transform *= Matrix.Scale(md3scale, 4)
     model.fix_transform *= Matrix.Translation(Vector((
-        settings.offsetx, settings.offsety, settings.offsetz)))
-    model.fix_transform *= Matrix.Rotation(radians(90), 4, 'Z')
+        md3offsetx, md3offsety, md3offsetz)))
+    model.fix_transform *= (
+        axis_conversion(axis_forward, axis_up, to_forward='X').to_4x4())
     # Add objects to model manager
     if len(bpy.context.selected_objects) == 0:
         message(log, "Select an object to export!")
@@ -1033,14 +1014,17 @@ def save_md3(settings):
     model.setup_frames()
     model.md3.get_size()
     print_md3(log, model.md3, dumpall)
-    model.save(settings.savepath, settings.modeldef, settings.zscript)
+    model.save(filepath, md3genmodeldef, md3genactordef)
     endtime = time.clock() - starttime
     bpy.context.scene.frame_set(orig_frame)
     message(log, "Export took {:.3f} seconds".format(endtime))
 
-from bpy.props import *
 
-class ExportMD3(bpy.types.Operator, ExportHelper):
+MD3OrientationHelper = orientation_helper_factory(
+    "MD3OrientationHelper", axis_forward='Y', axis_up='Z')
+
+
+class ExportMD3(bpy.types.Operator, ExportHelper, MD3OrientationHelper):
     '''Export to .md3'''
     bl_idname = "export.md3"
     bl_label = 'Export MD3'
@@ -1147,6 +1131,8 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         row.prop(self, "md3offsetx", "X")
         row.prop(self, "md3offsety", "Y")
         row.prop(self, "md3offsetz", "Z")
+        col.prop(self, "axis_forward")
+        col.prop(self, "axis_up")
         row = col.row()
         if self.md3userefframe:
             row.prop(self, "md3userefframe", text="")
@@ -1170,24 +1156,19 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
             col.label(stats)
 
     def execute(self, context):
-        settings = MD3Settings(
-            savepath=self.properties.filepath,
-            name=self.properties.md3name,
-            logtype=self.properties.md3logtype,
-            dumpall=self.properties.md3dumpall,
-            scale=self.properties.md3scale,
-            offsetx=self.properties.md3offsetx,
-            offsety=self.properties.md3offsety,
-            offsetz=self.properties.md3offsetz,
-            refframe=(self.properties.md3refframe
-                if self.properties.md3userefframe
-                else None),
-            gzdoom=self.properties.md3forgzdoom,
-            modeldef=self.properties.md3genmodeldef,
-            zscript=self.properties.md3genactordef,
-            framename=self.properties.md3framename,
-            frametime=self.properties.md3frametime)
-        save_md3(settings)
+        settings = self.as_keywords(ignore=(
+            # Properties used by Operator and ExportHelper mixins
+            "bl_idname", "bl_label", "logenum", "filename_ext", "filter_glob",
+            # Properties used by ExportHelper
+            "check_existing", "order", "check_extension",
+            # Proper value is manually computed below
+            "md3refframe", "md3userefframe",
+        ))
+        settings["ref_frame"] = (
+            self.properties.md3refframe
+            if self.properties.md3userefframe
+            else None)
+        save_md3(**settings)
         return {'FINISHED'}
 
     @classmethod
