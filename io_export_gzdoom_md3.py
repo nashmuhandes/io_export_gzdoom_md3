@@ -32,7 +32,11 @@ bl_info = {
         "category": "Import-Export"}
 
 import bpy, struct, math, time
-from bpy_extras.io_utils import ExportHelper, axis_conversion
+from bpy_extras.io_utils import (
+    ExportHelper,
+    axis_conversion,
+    orientation_helper
+)
 from collections import namedtuple, OrderedDict
 from itertools import starmap
 from math import floor, log10, radians
@@ -670,15 +674,15 @@ class BlenderModelManager:
             for obj_ref in obj_refs.values():
                 obj_ref.object.to_mesh_clear()
             for tag_obj in self.tag_objects:
-                position, rotation, _ = tag_obj.matrix_world.decompose()
-                world_transfix = self.fix_transform.to_3x3()
-                # X axis in MD3 is forward, and world_transfix rotates by -90
+                tag_transform = self.fix_transform @ tag_obj.matrix_world
+                position, rotation, _ = tag_transform.decompose()
+                # Makes the 'X' axis point forwards, assuming the tag is an
+                # empty, shown as 'Arrows' with the 'Y' pointing forwards.
                 local_transfix = Matrix.Rotation(radians(90), 3, 'Z')
-                position = world_transfix @ position
-                # Inverting the quaternion makes axes consistent between
-                # Blender and MD3
-                rotation = rotation.inverted().to_matrix()
-                rotation = world_transfix @ rotation @ local_transfix
+                rotation = rotation.to_matrix() @ local_transfix
+                # MD3 tag axes are column-major, and
+                # Blender matrix axes are row-major
+                rotation.transpose()
                 ntag = MD3Tag()
                 ntag.name = tag_obj.name
                 ntag.origin = position
@@ -902,7 +906,7 @@ def save_md3(
         filepath, log_type, depsgraph, md3name="", dump_all=False, ref_frame=-1,
         orig_frame=None, gzdoom=True, sprite_name=False, sprite_tics=1,
         offsetx=0, offsety=0, offsetz=0, scale=1, gen_actordef=False,
-        gen_modeldef=False):
+        gen_modeldef=False, axis_forward='Y', axis_up='Z'):
     starttime = time.perf_counter()  # start timer
     fullpath = splitext(filepath)[0]
     modelname = basename(fullpath)
@@ -927,7 +931,7 @@ def save_md3(
     # Set up "fix" transformation matrix
     scale_fix = Matrix.Scale(scale, 4)
     pos_fix = Matrix.Translation((offsetx, offsety, offsetz))
-    rot_fix = axis_conversion(to_forward='X').to_4x4()
+    rot_fix = axis_conversion(axis_forward, axis_up, to_forward='X').to_4x4()
     # @ operator is used for matrix multiplication
     model.fix_transform = model.fix_transform @ scale_fix @ pos_fix @ rot_fix
     # Add objects to model manager
@@ -957,6 +961,7 @@ def save_md3(
     bpy.context.scene.frame_set(orig_frame)
 
 
+@orientation_helper()
 class ExportMD3(bpy.types.Operator, ExportHelper):
     '''Export to .md3'''
     bl_idname = "export.md3"
@@ -1064,6 +1069,8 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         row.prop(self, "offsetx", text="X")
         row.prop(self, "offsety", text="Y")
         row.prop(self, "offsetz", text="Z")
+        col.prop(self, "axis_forward")
+        col.prop(self, "axis_up")
         row = col.row()
         if self.use_ref_frame:
             row.prop(self, "use_ref_frame", text="")
