@@ -640,19 +640,9 @@ class BlenderModelManager:
                     # Check each coordinate individually so that the mins/maxs
                     # form a bounding box around the geometry
                     # First, check mins
-                    if vertex.co[0] < nframe.mins[0]:
-                        nframe.mins[0] = vertex.co[0]
-                    if vertex.co[1] < nframe.mins[1]:
-                        nframe.mins[1] = vertex.co[1]
-                    if vertex.co[2] < nframe.mins[2]:
-                        nframe.mins[2] = vertex.co[2]
+                    nframe.mins = Vector(map(min, nframe.mins, vertex.co))
                     # Check maxs
-                    if vertex.co[0] > nframe.maxs[0]:
-                        nframe.maxs[0] = vertex.co[0]
-                    if vertex.co[1] > nframe.maxs[1]:
-                        nframe.maxs[1] = vertex.co[1]
-                    if vertex.co[2] > nframe.maxs[2]:
-                        nframe.maxs[2] = vertex.co[2]
+                    nframe.maxs = Vector(map(max, nframe.maxs, vertex.co))
                 nframe.radius = max(nframe.mins.length, nframe.maxs.length)
                 # Add mesh to dict
                 obj_refs[mesh_obj.name] = ObjectReference(mesh_obj, obj_mesh)
@@ -779,7 +769,8 @@ class BaseCoder:
         self.base = len(alphabet)
 
     def encode(self, text):
-        "Encode a number with an arbitrary base. Takes a bytes-like object, " "returns the number."
+        "Encode a number with an arbitrary base. Takes a bytes-like object, "
+        "returns the number."
         number = 0
         for index, char in enumerate(reversed(text)):
             char_value = self.alphabet.index(char)
@@ -787,7 +778,8 @@ class BaseCoder:
         return number
 
     def decode(self, number, minlength=1):
-        "Decode a number with an arbitrary base. Takes a number, returns the " "text."
+        "Decode a number with an arbitrary base. Takes a number, returns the "
+        "text."
         from math import log
         try:
             digits = floor(log(number, self.base)) + 1
