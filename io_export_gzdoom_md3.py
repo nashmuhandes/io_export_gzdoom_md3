@@ -1020,8 +1020,7 @@ def save_md3(filepath,
     message(log, "Export took {:.3f} seconds".format(endtime))
 
 
-MD3OrientationHelper = orientation_helper_factory(
-    "MD3OrientationHelper", axis_forward='Y', axis_up='Z')
+MD3OrientationHelper = orientation_helper_factory("MD3OrientationHelper")
 
 
 class ExportMD3(bpy.types.Operator, ExportHelper, MD3OrientationHelper):
@@ -1157,10 +1156,9 @@ class ExportMD3(bpy.types.Operator, ExportHelper, MD3OrientationHelper):
 
     def execute(self, context):
         settings = self.as_keywords(ignore=(
-            # Properties used by Operator and ExportHelper mixins
-            "bl_idname", "bl_label", "logenum", "filename_ext", "filter_glob",
-            # Properties used by ExportHelper
-            "check_existing", "order", "check_extension",
+            # Only properties (from bpy.props) are converted
+            # Properties from/used by ExportHelper
+            "filter_glob", "check_existing",
             # Proper value is manually computed below
             "md3refframe", "md3userefframe",
         ))
