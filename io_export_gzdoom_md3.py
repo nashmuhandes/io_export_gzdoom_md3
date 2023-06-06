@@ -451,10 +451,7 @@ class BlenderModelManager:
                 self.frame_digits = floor(log10(self.frame_count - 1))
         self.gzdoom = gzdoom
         # Reference frame - used for initial UV and triangle data
-        if ref_frame is not None:
-            self.ref_frame = ref_frame
-        else:
-            self.ref_frame = self.start_frame
+        self.merge_ref_frame = ref_frame
         self.frame_name = frame_name[0:4]
         if frame_time == 0:
             frame_time = 35 / bpy.context.scene.render.fps
@@ -500,7 +497,8 @@ class BlenderModelManager:
         if mesh_obj in self.mesh_objects:
             return False
         self.mesh_objects.append(mesh_obj)
-        bpy.context.scene.frame_set(self.ref_frame)
+        if self.merge_ref_frame is not None:
+            bpy.context.scene.frame_set(self.merge_ref_frame)
         mesh_obj = mesh_obj.evaluated_get(self.depsgraph)
         obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
         obj_mesh.transform(self.fix_transform @ mesh_obj.matrix_world)
@@ -544,14 +542,15 @@ class BlenderModelManager:
         )
         ntri = MD3Triangle()
         tri_index = face_index
+        face = obj_mesh.loop_triangles[face_index]
         for tri_vertex_index in range(3):
-            face = obj_mesh.loop_triangles[face_index]
-            # Set up the new triangle
-            vertex_index = face.vertices[tri_vertex_index]
+            # Process each vertex
+            loop_index = face.loops[tri_vertex_index]
             # Get vertex ID, which is the vertex in MD3 binary format. First,
             # get the vertex position
+            vertex_index = obj_mesh.loops[loop_index].vertex_index
             vertex = obj_mesh.vertices[vertex_index]
-            vertex_position = vertex.co
+            vertex_position = vertex.co.copy()
             # If the face is flat-shaded, the face normal is used.
             # Otherwise, the vertex normal is used.
             if face.use_smooth:
@@ -559,12 +558,15 @@ class BlenderModelManager:
             else:
                 vertex_normal = face.normal
             # Get UV coordinates for this vertex.
-            loop_index = face.loops[tri_vertex_index]
             face_uvs = obj_mesh.uv_layers.active.data[loop_index]
             vertex_uv = face_uvs.uv
-            # Get ID from position, normal, and UV.
-            vertex_id = BlenderModelManager.encode_vertex(
-                vertex_position, vertex_normal, vertex_uv, self.gzdoom)
+            if self.merge_ref_frame is not None:
+                # Get ID from position, normal, and UV.
+                vertex_id = BlenderModelManager.encode_vertex(
+                    vertex_position, vertex_normal, vertex_uv, self.gzdoom)
+            else:
+                # Don't merge vertices, just use the loop index
+                vertex_id = loop_index
             # Add the vertex if it hasn't already been added.
             if vertex_id not in bsurface.unique_vertices:
                 # num_verts is used because the surface contains vertex data
@@ -657,8 +659,9 @@ class BlenderModelManager:
                     for vertex_info in vertex_infos:
                         tri = obj_mesh.loop_triangles[vertex_info.tri_index]
                         # Get vertex position
-                        vertex_position = obj_mesh.vertices[
-                            tri.vertices[vertex_info.tri_vertex_index]].co
+                        loop_index = tri.loops[vertex_info.tri_vertex_index]
+                        vertex_index = obj_mesh.loops[loop_index].vertex_index
+                        vertex_position = obj_mesh.vertices[vertex_index].co.copy()
                         # Get vertex normal
                         if vertex_info.smooth:
                             vertex_normal = tri.split_normals[
@@ -923,8 +926,6 @@ def save_md3(
         log.clear()
     else:
         log = None
-    if ref_frame is None:
-        ref_frame = orig_frame
     message(log, "###################### BEGIN ######################")
     model = BlenderModelManager(
         gzdoom, md3name, ref_frame, sprite_name, scale, sprite_tics, depsgraph)
@@ -1015,22 +1016,21 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         description="Transition scene along z axis",
         default=0.0,
         precision=5)
-    use_ref_frame: bpy.props.BoolProperty(
-        name="Use Reference Frame",
-        description="Use a specific frame other than the current frame as the "
-            "\"reference frame\". If there is more than one vertex at a given "
-            "position at any given time in the animation, those vertices may "
-            "be merged together. You can use a \"reference frame\" to choose "
-            "a specific animation frame to use as a reference for vertices "
-            "so that they are not merged together unexpectedly. If not "
-            "specified, the \"reference frame\" is the current frame in the "
-            "current scene",
+    merge_vertices: bpy.props.BoolProperty(
+        name="Merge vertices",
+        description="If there is more than one vertex at a given position at "
+            "any given time in the animation, those vertices may be merged "
+            "together to reduce the file size. You use a \"reference frame\" "
+            "to choose a specific animation frame to use as a reference for "
+            "vertices so that they are not merged together unexpectedly. "
+            "Uncheck this if it's causing unexpected glitches for you",
         default=True)
     ref_frame: bpy.props.IntProperty(
         name="Reference Frame",
-        description="The frame to use for vertices, UVs, and triangles. If "
-        "not specified, uses the current frame in the current scene",
-        default=0)
+        description="The frame to use as a reference for vertices, UVs, and "
+            "normals. If -1, uses the current frame in the current scene",
+        default=-1,
+        min=-1)
     gzdoom: bpy.props.BoolProperty(
         name="Export for GZDoom",
         description="Export the model for GZDoom; Fixes normals pointing "
@@ -1072,11 +1072,11 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
         col.prop(self, "axis_forward")
         col.prop(self, "axis_up")
         row = col.row()
-        if self.use_ref_frame:
-            row.prop(self, "use_ref_frame", text="")
+        if self.merge_vertices:
+            row.prop(self, "merge_vertices", text="")
             row.prop(self, "ref_frame")
         else:
-            row.prop(self, "use_ref_frame")
+            row.prop(self, "merge_vertices")
         col.prop(self, "gzdoom")
         col.prop(self, "gen_actordef")
         col.prop(self, "gen_modeldef")
@@ -1110,12 +1110,14 @@ class ExportMD3(bpy.types.Operator, ExportHelper):
             "check_existing",
             "bl_idname",
             "bl_label",
-            "use_ref_frame",
+            "merge_vertices",
             "filter_glob",
         ))
         settings["depsgraph"] = context.evaluated_depsgraph_get()
         settings["orig_frame"] = bpy.context.scene.frame_current
-        if not self.use_ref_frame: settings["ref_frame"] = None
+        if not self.merge_vertices: settings["ref_frame"] = None
+        elif self.ref_frame == -1:
+            settings["ref_frame"] = bpy.context.scene.frame_current
         save_md3(**settings)
         return {'FINISHED'}
 
