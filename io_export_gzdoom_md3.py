@@ -403,13 +403,10 @@ class BlenderSurface:
             # TODO: Handle "Use material name"
             self.surface.shaders = shaders
 
-        # {Mesh object: [(triangle index, vertex index, smooth), ...]}
+        # {Mesh object: [loop index, ...]}
         # Where "Mesh object" is the NAME of the object from which the mesh was
-        # created, "triangle index" is the index of the triangle in
-        # mesh.loop_triangles, "vertex index" is the index of the vertex on the 
-        # face, and "smooth" is a boolean value which specifies which normal
-        # should be used (False to use face normal, True to use split normal)
-        self.vertex_refs = OrderedDict()
+        # created, and "loop index" is the index of the loop in mesh.loops.
+        self.loop_refs = OrderedDict()
 
         # Vertices (position, normal, and UV) in MD3 binary format, mapped to
         # their indices
@@ -536,30 +533,19 @@ class BlenderModelManager:
 
     def _add_tri(self, bsurface, obj_mesh, obj_name, face_index,
                  mesh_vertex_indices):
-        # Define VertexReference named tuple
-        from collections import namedtuple
-        VertexReference = namedtuple(
-            "VertexReference",
-            "tri_index tri_vertex_index smooth"
-        )
         ntri = MD3Triangle()
         tri_index = face_index
+        face = obj_mesh.loop_triangles[face_index]
+        # Set up the new triangle
         for tri_vertex_index in range(3):
-            face = obj_mesh.loop_triangles[face_index]
-            # Set up the new triangle
-            vertex_index = face.vertices[tri_vertex_index]
+            loop_index = face.loops[tri_vertex_index]
             # Get vertex ID, which is the vertex in MD3 binary format. First,
             # get the vertex position
-            vertex = obj_mesh.vertices[vertex_index]
+            vertex = obj_mesh.vertices[obj_mesh.loops[loop_index].vertex_index]
             vertex_position = vertex.co
-            # If the face is flat-shaded, the face normal is used.
-            # Otherwise, the vertex normal is used.
-            if face.use_smooth:
-                vertex_normal = face.split_normals[tri_vertex_index]
-            else:
-                vertex_normal = face.normal
+            # Calculated automatically by obj.calc_normals_split()
+            vertex_normal = obj_mesh.loops[loop_index].normal
             # Get UV coordinates for this vertex.
-            loop_index = face.loops[tri_vertex_index]
             face_uvs = obj_mesh.uv_layers.active.data[loop_index]
             vertex_uv = face_uvs.uv
             # Get ID from position, normal, and UV.
@@ -568,7 +554,7 @@ class BlenderModelManager:
             # Add the vertex if it hasn't already been added.
             if vertex_id not in bsurface.unique_vertices:
                 # num_verts is used because the surface contains vertex data
-                # for every frame.
+                # for every frame. This is only for the first frame.
                 bsurface.surface.num_verts += 1
                 # Texture coordinates do not change per frame, so they can be
                 # added now.
@@ -579,10 +565,10 @@ class BlenderModelManager:
                 # Map "Vertex ID" to the MD3 vertex index
                 md3_vertex_index = len(bsurface.unique_vertices)
                 bsurface.unique_vertices[vertex_id] = md3_vertex_index
-                vert_refs = bsurface.vertex_refs.setdefault(obj_name, [])
-                vert_refs.append(VertexReference(
-                    tri_index, tri_vertex_index, face.use_smooth
-                ))
+                # This only needs to be done if a new unique vertex is added,
+                # because MD3s use indexed triangles to reference vertices
+                loop_refs = bsurface.loop_refs.setdefault(obj_name, [])
+                loop_refs.append(loop_index)
             else:
                 # The vertex has already been added, so just get its index.
                 md3_vertex_index = bsurface.unique_vertices[vertex_id]
@@ -630,7 +616,7 @@ class BlenderModelManager:
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform @ mesh_obj.matrix_world)
                 obj_mesh.calc_normals_split()
-                obj_mesh.calc_loop_triangles()
+                # obj_mesh.calc_loop_triangles()  # Stored in BlenderSurface
                 # Set up frame bounds/origin/radius
                 if not nframe_bounds_set:
                     # Copy the vertex so that it isn't modified
@@ -652,19 +638,14 @@ class BlenderModelManager:
                 obj_refs[mesh_obj.name] = ObjectReference(mesh_obj, obj_mesh)
             self.md3.frames.append(nframe)
             for bsurface in self.material_surfaces.values():
-                for mesh_name, vertex_infos in bsurface.vertex_refs.items():
+                for mesh_name, loops in bsurface.loop_refs.items():
                     obj_mesh = obj_refs[mesh_name].mesh
-                    for vertex_info in vertex_infos:
-                        tri = obj_mesh.loop_triangles[vertex_info.tri_index]
+                    for loop in loops:
                         # Get vertex position
                         vertex_position = obj_mesh.vertices[
-                            tri.vertices[vertex_info.tri_vertex_index]].co
+                            obj_mesh.loops[loop].vertex_index].co
                         # Get vertex normal
-                        if vertex_info.smooth:
-                            vertex_normal = tri.split_normals[
-                                vertex_info.tri_vertex_index]
-                        else:
-                            vertex_normal = tri.normal
+                        vertex_normal = obj_mesh.loops[loop].normal
                         # Set up MD3 vertex
                         nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
