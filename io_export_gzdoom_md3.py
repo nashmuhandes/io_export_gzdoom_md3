@@ -33,12 +33,15 @@ bl_info = {
 import bpy, struct, math, time
 from bpy.props import *
 from bpy_extras.io_utils import (
+    ImportHelper,
     ExportHelper,
     axis_conversion,
     orientation_helper_factory,
 )
+from bpy.types import Operator
 from collections import OrderedDict, namedtuple
 from itertools import starmap
+from io import SEEK_SET
 from math import floor, log10, radians
 from mathutils import Matrix, Vector
 from os.path import basename, splitext
@@ -60,13 +63,23 @@ MD3_MAX_SHADERS = 256
 MD3_MAX_VERTICES = 8192    #4096
 MD3_MAX_TRIANGLES = 16384  #8192
 MD3_XYZ_SCALE = 64.0
+# https://www.icculus.org/homepages/phaethon/q3a/formats/md3format.html#Normals
+MD3_UP_NORMAL = 0
+MD3_DOWN_NORMAL = 32768  # 128 << 8
+
+
+def unmd3_string(data):
+    "Given a fixed-size bytes object, return a bytes object"
+    null_pos = data.find(b"\0")
+    data = data[0:null_pos]
+    return data
 
 
 class MD3Vertex:
     binary_format = "<3hH"
 
     def __init__(self):
-        self.xyz = [0, 0, 0]
+        self.xyz = (0, 0, 0)
         self.normal = 0
 
     @staticmethod
@@ -75,7 +88,7 @@ class MD3Vertex:
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def decode(latlng):
+    def decode_normal(latlng):
         lat = (latlng >> 8) & 0xFF
         lng = (latlng) & 0xFF
         lat *= math.pi / 128
@@ -83,35 +96,35 @@ class MD3Vertex:
         x = math.cos(lat) * math.sin(lng)
         y = math.sin(lat) * math.sin(lng)
         z =                 math.cos(lng)
-        retval = [ x, y, z ]
-        return retval
+        return Vector((x, y, z))
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def encode(normal, gzdoom=True):
-        x = normal[0]
-        y = normal[1]
-        z = normal[2]
-        # normalize
-        l = math.sqrt((x*x) + (y*y) + (z*z))
-        if l == 0:
-            return 0
-        x = x/l
-        y = y/l
-        z = z/l
+    def encode_normal(normal, gzdoom=True):
+        n = normal.normalized()
 
         # Export for Quake 3 rather than GZDoom
         if not gzdoom:
-            if (x == 0.0) and (y == 0.0):
-                if z > 0.0:
-                    return 0
-                else:
-                    return (128 << 8)
+            if n.z == 1.0:
+                return MD3_UP_NORMAL
+            elif n.z == -1.0:
+                return MD3_DOWN_NORMAL
 
-        lng = math.acos(z) * 255 / (2 * math.pi)
-        lat = math.atan2(y, x) * 255 / (2 * math.pi)
-        retval = ((int(lat) & 0xFF) << 8) | (int(lng) & 0xFF)
-        return retval
+        lng = math.acos(n.z) * 255 / (2 * math.pi)
+        lat = math.atan2(n.y, n.x) * 255 / (2 * math.pi)
+        lng_byte = int(lng) & 0xFF
+        lat_byte = int(lat) & 0xFF
+
+        return (lat_byte << 8) | (lng_byte)
+
+    @staticmethod
+    def read(file):
+        data = file.read(MD3Vertex.get_size())
+        data = struct.unpack(MD3Vertex.binary_format, data)
+        nvertex = MD3Vertex()
+        nvertex.xyz = data[0:3]
+        nvertex.normal = data[3]
+        return nvertex
 
     def save(self, file):
         data = struct.pack(self.binary_format, *self.xyz, self.normal)
@@ -127,6 +140,15 @@ class MD3TexCoord:
     @staticmethod
     def get_size():
         return struct.calcsize(MD3TexCoord.binary_format)
+
+    @staticmethod
+    def read(file):
+        data = file.read(MD3TexCoord.get_size())
+        data = struct.unpack(MD3TexCoord.binary_format, data)
+        ntexcoord = MD3TexCoord()
+        ntexcoord.u = data[0]
+        ntexcoord.v = data[1]
+        return ntexcoord
 
     def save(self, file):
         uv_x = self.u
@@ -144,6 +166,14 @@ class MD3Triangle:
     def get_size():
         return struct.calcsize(MD3Triangle.binary_format)
 
+    @staticmethod
+    def read(file):
+        data = file.read(MD3Triangle.get_size())
+        data = struct.unpack(MD3Triangle.binary_format, data)
+        ntri = MD3Triangle()
+        ntri.indexes = data[:]
+        return ntri
+
     def save(self, file):
         indexes = self.indexes[:]
         indexes[1:3] = reversed(indexes[1:3])  # Winding order fix
@@ -160,6 +190,15 @@ class MD3Shader:
     @staticmethod
     def get_size():
         return struct.calcsize(MD3Shader.binary_format)
+
+    @staticmethod
+    def read(file):
+        data = file.read(MD3Shader.get_size())
+        data = struct.unpack(MD3Shader.binary_format, data)
+        nshader = MD3Shader()
+        nshader.name = unmd3_string(data[0]).decode()
+        nshader.index = data[1]
+        return nshader
 
     def save(self, file):
         name = str.encode(self.name)
@@ -208,6 +247,46 @@ class MD3Surface:
         self.size = self.ofs_end
         return self.ofs_end
 
+    @staticmethod
+    def read(file):
+        surface_start = file.tell()
+        data = file.read(struct.calcsize(MD3Surface.binary_format))
+        data = struct.unpack(MD3Surface.binary_format, data)
+        if data[0] != b"IDP3":
+            return None
+        nsurf = MD3Surface()
+        # nsurf.ident = data[0]
+        nsurf.name = unmd3_string(data[1]).decode()
+        nsurf.flags = data[2]
+        nsurf.num_frames = data[3]
+        num_shaders = data[4]
+        nsurf.num_verts = data[5]
+        num_tris = data[6]
+        nsurf.ofs_triangles = data[7]
+        nsurf.ofs_shaders = data[8]
+        nsurf.ofs_uv = data[9]
+        nsurf.ofs_verts = data[10]
+        nsurf.ofs_end = data[11]
+
+        file.seek(surface_start + nsurf.ofs_shaders, SEEK_SET)
+        shaders = [MD3Shader.read(file) for x in range(num_shaders)]
+        # Temporary workaround for the lack of support for multiple shaders
+        # Most MD3 surfaces only use one shader anyways
+        nsurf.shader = shaders[0]
+
+        file.seek(surface_start + nsurf.ofs_triangles, SEEK_SET)
+        nsurf.triangles = [MD3Triangle.read(file) for x in range(num_tris)]
+
+        file.seek(surface_start + nsurf.ofs_uv, SEEK_SET)
+        nsurf.uv = [MD3TexCoord.read(file) for x in range(nsurf.num_verts)]
+
+        num_verts = nsurf.num_verts * nsurf.num_frames  # Vertex animation
+        file.seek(surface_start + nsurf.ofs_verts, SEEK_SET)
+        nsurf.verts = [MD3Vertex.read(file) for x in range(num_verts)]
+
+        file.seek(surface_start + nsurf.ofs_end, SEEK_SET)
+        return nsurf
+
     def save(self, file):
         self.get_size()
         temp_data = [0] * 12
@@ -253,6 +332,16 @@ class MD3Tag:
     def get_size():
         return struct.calcsize(MD3Tag.binary_format)
 
+    @staticmethod
+    def read(file):
+        data = file.read(MD3Tag.get_size())
+        data = struct.unpack(MD3Tag.binary_format, data)
+        ntag = MD3Tag()
+        ntag.name = unmd3_string(data[0]).decode()
+        ntag.origin = data[1:4]
+        ntag.axis = data[4:13]
+        return ntag
+
     def save(self, file):
         temp_data = [0] * 13
         temp_data[0] = str.encode(self.name)
@@ -284,6 +373,18 @@ class MD3Frame:
     @staticmethod
     def get_size():
         return struct.calcsize(MD3Frame.binary_format)
+
+    @staticmethod
+    def read(file):
+        data = file.read(MD3Frame.get_size())
+        data = struct.unpack(MD3Frame.binary_format, data)
+        nframe = MD3Frame()
+        nframe.mins = data[0:3]
+        nframe.maxs = data[3:6]
+        nframe.local_origin = data[6:9]
+        nframe.radius = data[9]
+        nframe.name = unmd3_string(data[10]).decode()
+        return nframe
 
     def save(self, file):
         temp_data = [0] * 11
@@ -344,6 +445,40 @@ class MD3Object:
 
         self.size = self.ofs_end
         return self.ofs_end
+
+    @staticmethod
+    def read(file):
+        md3_start = file.tell()
+        data = file.read(struct.calcsize(MD3Object.binary_format))
+        data = struct.unpack(MD3Object.binary_format, data)
+        if data[0] != b"IDP3":
+            return None
+        nobj = MD3Object()
+        # nobj.ident = data[0]
+        nobj.version = data[1]
+        nobj.name = unmd3_string(data[2]).decode()
+        nobj.flags = data[3]
+        num_frames = data[4]
+        nobj.num_tags = data[5]
+        num_surfaces = data[6]
+        nobj.num_skins = data[7]
+        nobj.ofs_frames = data[8]
+        nobj.ofs_tags = data[9]
+        nobj.ofs_surfaces = data[10]
+        nobj.ofs_end = data[11]
+
+        file.seek(md3_start + nobj.ofs_frames, SEEK_SET)
+        nobj.frames = [MD3Frame.read(file) for x in range(num_frames)]
+
+        file.seek(md3_start + nobj.ofs_tags, SEEK_SET)
+        num_tags = nobj.num_tags * num_frames
+        nobj.tags = [MD3Tag.read(file) for x in range(num_tags)]
+
+        file.seek(md3_start + nobj.ofs_surfaces, SEEK_SET)
+        nobj.surfaces = [MD3Surface.read(file) for x in range(num_surfaces)]
+
+        file.seek(md3_start + nobj.ofs_end, SEEK_SET)
+        return nobj
 
     def save(self, file):
         self.get_size()
@@ -494,7 +629,7 @@ class BlenderModelManager:
     @staticmethod
     def encode_vertex(position, normal, uv, gzdoom):
         md3_position = convert_xyz(position)
-        md3_normal = MD3Vertex.encode(normal, gzdoom)
+        md3_normal = MD3Vertex.encode_normal(normal, gzdoom)
         return (pack(MD3Vertex.binary_format, *md3_position, md3_normal)
               + pack(MD3TexCoord.binary_format, *uv))
 
@@ -585,7 +720,7 @@ class BlenderModelManager:
                 # The custom normal is in tessface.split_normals
                 normal_object = getattr(obj_mesh, normal_ref)[normal_index]
                 normal_object = getattr(normal_object, normal_subref)
-                vertex_normal = normal_object[normal_subindex][0:3]
+                vertex_normal = Vector(normal_object[normal_subindex][0:3])
             else:
                 # No custom normals
                 normal_object = getattr(obj_mesh, normal_ref)
@@ -713,8 +848,8 @@ class BlenderModelManager:
                             normal_object = getattr(
                                 normal_object, vertex_info.normal_subref)
                             # Copy the data
-                            vertex_normal = normal_object[
-                                vertex_info.normal_subindex][0:3]
+                            vertex_normal = Vector(normal_object[
+                                vertex_info.normal_subindex][0:3])
                         else:
                             # Get the data
                             vertex_normal = normal_object[
@@ -722,7 +857,7 @@ class BlenderModelManager:
                         # Set up MD3 vertex
                         nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
-                        nvertex.normal = MD3Vertex.encode(
+                        nvertex.normal = MD3Vertex.encode_normal(
                             vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
             for obj_mesh in obj_meshes.values():
@@ -1023,7 +1158,7 @@ def save_md3(filepath,
 MD3OrientationHelper = orientation_helper_factory("MD3OrientationHelper")
 
 
-class ExportMD3(bpy.types.Operator, ExportHelper, MD3OrientationHelper):
+class ExportMD3(Operator, ExportHelper, MD3OrientationHelper):
     '''Export to .md3'''
     bl_idname = "export.md3"
     bl_label = 'Export MD3'
@@ -1173,16 +1308,59 @@ class ExportMD3(bpy.types.Operator, ExportHelper, MD3OrientationHelper):
     def poll(cls, context):
         return context.active_object != None
 
-def menu_func(self, context):
+
+def read_md3(filepath):
+    with open(filepath, "rb") as md3file:
+        nobj = MD3Object.read(md3file)
+        md3_log = bpy.data.texts.new(bpy.path.basename(filepath))
+        print_md3(md3_log, nobj, True)
+        return {'FINISHED'}
+
+
+class ImportMD3(Operator, ImportHelper, MD3OrientationHelper):
+    """Import a Quake 3 .md3 file"""
+    # important since its how bpy.ops.import.md3 is constructed
+    bl_idname = "import.md3"
+    bl_label = "Import MD3"
+
+    # ImportHelper mixin class uses this
+    filename_ext = ".md3"
+
+    filter_glob = StringProperty(
+        default="*.md3",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
+    # List of operator properties, the attributes will be assigned
+    # to the class instance from the operator settings before calling.
+    md3forgzdoom = BoolProperty(
+        name="GZDoom",
+        description="Fix normals when importing a model made for Quake 3",
+        default=True,
+    )
+
+    def execute(self, context):
+        return read_md3(self.filepath)
+
+
+def menu_func_export(self, context):
     self.layout.operator(ExportMD3.bl_idname, text="GZDoom MD3", icon='BLENDER')
+
+def menu_func_import(self, context):
+    self.layout.operator(ImportMD3.bl_idname, text="GZDoom MD3", icon='BLENDER')
 
 def register():
     bpy.utils.register_class(ExportMD3)
-    bpy.types.INFO_MT_file_export.append(menu_func)
+    bpy.types.INFO_MT_file_export.append(menu_func_export)
+    bpy.utils.register_class(ImportMD3)  # WIP!
+    bpy.types.INFO_MT_file_import.append(menu_func_import)
 
 def unregister():
     bpy.utils.unregister_class(ExportMD3)
-    bpy.types.INFO_MT_file_export.remove(menu_func)
+    bpy.types.INFO_MT_file_export.remove(menu_func_export)
+    bpy.utils.unregister_class(ImportMD3)  # WIP!
+    bpy.types.INFO_MT_file_import.remove(menu_func_import)
 
 if __name__ == "__main__":
     register()
