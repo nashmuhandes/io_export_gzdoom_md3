@@ -1361,7 +1361,6 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
         unique_vertices = {}
         vertex_positions = array.array('h')
         vertex_normals = array.array('H')
-        vertex_orig = array.array('L')
         vertex_remap = array.array('L')
 
         polys_to_add = sum(map(lambda sf: len(sf.triangles), nobj.surfaces))
@@ -1386,7 +1385,6 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
 
             first_frame_verts = nsurf.verts[:nsurf.num_verts]
             for vertex_index, nvertex in enumerate(first_frame_verts):
-                vertex_orig.append(vertex_index)
                 vertex = nvertex.xyz
                 # If the vertices are not remapped, Blender will remove some
                 # triangles when someone uses the "Remove Doubles" operation
