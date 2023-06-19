@@ -1411,7 +1411,7 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
                     lambda i: vertex_remap[surface_start + i], ntri.indexes))
                 tri_edges = tuple(pairwise(indexes + (indexes[0],)))
                 # Edges with the original indexes, used for UV coordinates
-                o_edges = tuple(pairwise(ntri.indexes + (ntri.indexes[0],)))
+                o_edges = ntri.indexes
                 for edge, oedge in zip(reversed(tri_edges), reversed(o_edges)):
                     edge_set = frozenset(edge)
                     if edge_set not in unique_edges:
@@ -1420,7 +1420,7 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
                         edges.extend(edge)
                     else:
                         edge_index = unique_edges[edge_set]
-                    uv = nsurf.uv[oedge[0]]
+                    uv = nsurf.uv[oedge]
                     bl_mesh.uv_layers["UVMap"].data[loop_index].uv = (
                         uv.u, 1 - uv.v)
                     bl_mesh.loops[loop_index].vertex_index = edge[0]
