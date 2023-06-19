@@ -1348,105 +1348,110 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
         next(b, None)
         return zip(a, b)
 
-    # SurfaceVertex = namedtuple("SurfaceVertex", "surface vertex")
-    # SurfaceEdge = namedtuple("SurfaceEdge", "surface a b")
     with open(filepath, "rb") as md3file:
         nobj = MD3Object.read(md3file)
-        # md3_log = bpy.data.texts.new(bpy.path.basename(filepath))
-        # print_md3(md3_log, nobj, True)
-        bl_mesh = bpy.data.meshes.new(nobj.name)
 
-        edges = array.array('L')
-        unique_edges = {}
-        unique_vertices = {}
-        vertex_positions = array.array('h')
-        vertex_normals = array.array('H')
-        vertex_remap = array.array('L')
+    bl_mesh = bpy.data.meshes.new(nobj.name)
 
-        polys_to_add = sum(map(lambda sf: len(sf.triangles), nobj.surfaces))
-        loops_to_add = polys_to_add * 3  # All MD3 faces are triangles
-        bl_mesh.polygons.add(polys_to_add)
-        bl_mesh.loops.add(loops_to_add)
+    edges = array.array('L')
+    unique_edges = {}
+    unique_vertices = {}
+    vertex_positions = array.array('h')
+    vertex_normals = array.array('H')
+    vertex_remap = array.array('L')
 
-        # This also creates a new layer in bl_mesh.uv_layers
-        bl_mesh.uv_textures.new("UVMap")
+    polys_to_add = sum(map(lambda sf: len(sf.triangles), nobj.surfaces))
+    loops_to_add = polys_to_add * 3  # All MD3 faces are triangles
+    bl_mesh.polygons.add(polys_to_add)
+    bl_mesh.loops.add(loops_to_add)
 
-        # All MD3 faces are triangles
-        for index, poly in enumerate(bl_mesh.polygons):
-            poly.loop_start = index * 3
-            poly.loop_total = 3
+    # This also creates a new layer in bl_mesh.uv_layers
+    bl_mesh.uv_textures.new("UVMap")
 
-        loop_index = 0  # Running for all surfaces
-        # Keep running count of total unique vertices per surface, otherwise,
-        # vertices won't get referenced properly
-        surface_start = 0
+    # All MD3 faces are triangles
+    for index, poly in enumerate(bl_mesh.polygons):
+        poly.loop_start = index * 3
+        poly.loop_total = 3
 
-        for nsurf in nobj.surfaces:
+    loop_index = 0  # Running for all surfaces
+    # Keep running count of total unique vertices per surface, otherwise,
+    # vertices won't get referenced properly
+    surfvtx_start = 0
+    surftri_start = 0
 
-            first_frame_verts = nsurf.verts[:nsurf.num_verts]
-            for vertex_index, nvertex in enumerate(first_frame_verts):
-                vertex = nvertex.xyz
-                # If the vertices are not remapped, Blender will remove some
-                # triangles when someone uses the "Remove Doubles" operation
-                if vertex not in unique_vertices:
-                    remap_index = len(unique_vertices)
-                    unique_vertices[vertex] = remap_index
-                    vertex_positions.extend(nvertex.xyz)
-                    vertex_normals.append(nvertex.normal)
+    for surf_index, nsurf in enumerate(nobj.surfaces):
+
+        # MD3 surface -> Blender material
+        surf_mtl = bpy.data.materials.new(nsurf.shader.name)
+        bl_mesh.materials.append(surf_mtl)
+
+        first_frame_verts = nsurf.verts[:nsurf.num_verts]
+        for vertex_index, nvertex in enumerate(first_frame_verts):
+            vertex = nvertex.xyz
+            # If the vertices are not remapped, Blender will remove some
+            # triangles when someone uses the "Remove Doubles" operation
+            if vertex not in unique_vertices:
+                remap_index = len(unique_vertices)
+                unique_vertices[vertex] = remap_index
+                vertex_positions.extend(nvertex.xyz)
+                vertex_normals.append(nvertex.normal)
+            else:
+                remap_index = unique_vertices[vertex]
+            vertex_remap.append(remap_index)
+
+        for tri_index, ntri in enumerate(nsurf.triangles):
+            # Use the original indexes to get the normal and see if the
+            # triangle should be "smooth" or not
+            normals = tuple(map(
+                lambda i: nsurf.verts[i].normal, reversed(ntri.indexes)))
+            bl_mesh.polygons[surftri_start + tri_index].use_smooth = (
+                normals != (normals[0],) * len(normals))
+            bl_mesh.polygons[surftri_start + tri_index].material_index = (
+                surf_index)  # MD3 surface -> Blender material
+            # Remap the indices to prevent unwanted vertex merging
+            indexes = tuple(map(
+                lambda i: vertex_remap[surfvtx_start + i], ntri.indexes))
+            tri_edges = tuple(pairwise(indexes + (indexes[0],)))
+            # Edges with the original indexes, used for UV coordinates
+            o_edges = ntri.indexes
+            for edge, oedge in zip(reversed(tri_edges), reversed(o_edges)):
+                edge_set = frozenset(edge)
+                if edge_set not in unique_edges:
+                    edge_index = len(unique_edges)
+                    unique_edges[edge_set] = edge_index
+                    edges.extend(edge)
                 else:
-                    remap_index = unique_vertices[vertex]
-                vertex_remap.append(remap_index)
+                    edge_index = unique_edges[edge_set]
+                uv = nsurf.uv[oedge]
+                bl_mesh.uv_layers["UVMap"].data[loop_index].uv = (
+                    uv.u, 1 - uv.v)
+                bl_mesh.loops[loop_index].vertex_index = edge[0]
+                bl_mesh.loops[loop_index].edge_index = edge_index
+                loop_index += 1
 
-            for tri_index, ntri in enumerate(nsurf.triangles):
-                # Use the original indexes to get the normal and see if the
-                # triangle should be "smooth" or not
-                normals = tuple(map(
-                    lambda i: nsurf.verts[i].normal, reversed(ntri.indexes)))
-                bl_mesh.polygons[tri_index].use_smooth = (
-                    normals != (normals[0],) * len(normals))
-                # Remap the indices to prevent unwanted vertex merging
-                indexes = tuple(map(
-                    lambda i: vertex_remap[surface_start + i], ntri.indexes))
-                tri_edges = tuple(pairwise(indexes + (indexes[0],)))
-                # Edges with the original indexes, used for UV coordinates
-                o_edges = ntri.indexes
-                for edge, oedge in zip(reversed(tri_edges), reversed(o_edges)):
-                    edge_set = frozenset(edge)
-                    if edge_set not in unique_edges:
-                        edge_index = len(unique_edges)
-                        unique_edges[edge_set] = edge_index
-                        edges.extend(edge)
-                    else:
-                        edge_index = unique_edges[edge_set]
-                    uv = nsurf.uv[oedge]
-                    bl_mesh.uv_layers["UVMap"].data[loop_index].uv = (
-                        uv.u, 1 - uv.v)
-                    bl_mesh.loops[loop_index].vertex_index = edge[0]
-                    bl_mesh.loops[loop_index].edge_index = edge_index
-                    loop_index += 1
+        surftri_start += len(nsurf.triangles)
+        # Length of vertex_remap because surface_start is used to correct
+        # the index into vertex_remap
+        surfvtx_start += len(vertex_remap)
 
-            # Length of vertex_remap because surface_start is used to correct
-            # the index into vertex_remap
-            surface_start += len(vertex_remap)
+    bl_mesh.vertices.add(len(unique_vertices))
+    for index, vertex in enumerate(bl_mesh.vertices):
+        pos = index * 3
+        vertex.co = MD3Vertex.decode_xyz(vertex_positions[pos : pos+3])
+        vertex.normal = MD3Vertex.decode_normal(
+            vertex_normals[index], md3forgzdoom)
 
-        bl_mesh.vertices.add(len(unique_vertices))
-        for index, vertex in enumerate(bl_mesh.vertices):
-            pos = index * 3
-            vertex.co = MD3Vertex.decode_xyz(vertex_positions[pos : pos+3])
-            vertex.normal = MD3Vertex.decode_normal(
-                vertex_normals[index], md3forgzdoom)
-
-        edge_count = len(edges) // 2
-        bl_mesh.edges.add(edge_count)
-        for edge_index in range(edge_count):
-            pos = edge_index * 2
-            bl_mesh.edges[edge_index].vertices = edges[pos : pos+2]
-        # Needed because MD3 X is forward
-        bl_mesh.transform(fix_transform, shape_keys=True)
-        # Add the new object to the scene
-        bl_object = bpy.data.objects.new(nobj.name, bl_mesh)
-        bpy.context.scene.objects.link(bl_object)
-        bpy.context.scene.update()
+    edge_count = len(edges) // 2
+    bl_mesh.edges.add(edge_count)
+    for edge_index in range(edge_count):
+        pos = edge_index * 2
+        bl_mesh.edges[edge_index].vertices = edges[pos : pos+2]
+    # Needed because MD3 X is forward
+    bl_mesh.transform(fix_transform, shape_keys=True)
+    # Add the new object to the scene
+    bl_object = bpy.data.objects.new(nobj.name, bl_mesh)
+    bpy.context.scene.objects.link(bl_object)
+    bpy.context.scene.update()
     return {'FINISHED'}
 
 
