@@ -30,7 +30,7 @@ bl_info = {
         "tracker_url": "https://forum.zdoom.org/viewtopic.php?f=232&t=69417",
         "category": "Import-Export"}
 
-import bpy, struct, math, time
+import array, bpy, struct, math, time
 from bpy.props import *
 from bpy_extras.io_utils import (
     ImportHelper,
@@ -40,7 +40,7 @@ from bpy_extras.io_utils import (
 )
 from bpy.types import Operator
 from collections import OrderedDict, namedtuple
-from itertools import starmap
+from itertools import starmap, tee
 from io import SEEK_SET
 from math import floor, log10, radians
 from mathutils import Matrix, Vector
@@ -69,7 +69,8 @@ MD3_DOWN_NORMAL = 32768  # 128 << 8
 
 
 def unmd3_string(data):
-    "Given a fixed-size bytes object, return a bytes object"
+    "Given a byte slice taken from a C string, return a bytes object suitable "
+    "for decoding to a UTF-8 string."
     null_pos = data.find(b"\0")
     data = data[0:null_pos]
     return data
@@ -86,17 +87,23 @@ class MD3Vertex:
     def get_size():
         return struct.calcsize(MD3Vertex.binary_format)
 
-    # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
-    def decode_normal(latlng):
-        lat = (latlng >> 8) & 0xFF
-        lng = (latlng) & 0xFF
-        lat *= math.pi / 128
-        lng *= math.pi / 128
-        x = math.cos(lat) * math.sin(lng)
-        y = math.sin(lat) * math.sin(lng)
-        z =                 math.cos(lng)
-        return Vector((x, y, z))
+    def encode_xyz(xyz):
+        "Convert an XYZ vector to an MD3 integer vector"
+        def convert(number, factor):
+            return floor(number * factor)
+        factors = [MD3_XYZ_SCALE] * 3
+        position = map(convert, xyz, factors)
+        return tuple(map(int, position))
+
+    @staticmethod
+    def decode_xyz(xyz):
+        "Convert an MD3 integer vector to a XYZ vector"
+        def convert(number, factor):
+            return number / factor
+        factors = [MD3_XYZ_SCALE] * 3
+        position = map(convert, xyz, factors)
+        return Vector(position)
 
     # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
     @staticmethod
@@ -117,12 +124,45 @@ class MD3Vertex:
 
         return (lat_byte << 8) | (lng_byte)
 
+    # copied from PhaethonH <phaethon@linux.ucla.edu> md3.py
+    @staticmethod
+    def decode_normal(latlng, gzdoom=True):
+        # Import from Quake 3 rather than GZDoom
+        if not gzdoom:
+            if latlng == MD3_UP_NORMAL:
+                return Vector((0.0, 0.0, 1.0))
+            elif latlng == MD3_DOWN_NORMAL:
+                return Vector((0.0, 0.0, -1.0))
+
+        lat = (latlng >> 8) & 0xFF
+        lng = (latlng) & 0xFF
+        lat *= math.pi / 128
+        lng *= math.pi / 128
+
+        x = math.cos(lat) * math.sin(lng)
+        y = math.sin(lat) * math.sin(lng)
+        z =                 math.cos(lng)
+
+        return Vector((x, y, z))
+
+    @staticmethod
+    def encode(xyz, normal, gzdoom=True):
+        xyz = MD3Vertex.encode_xyz(xyz)
+        normal = MD3Vertex.encode_normal(normal, gzdoom)
+        return xyz, normal
+
+    @staticmethod
+    def decode(xyz, normal, gzdoom=True):
+        xyz = MD3Vertex.decode_xyz(xyz)
+        normal = MD3Vertex.decode_normal(normal, gzdoom)
+        return xyz, normal
+
     @staticmethod
     def read(file):
         data = file.read(MD3Vertex.get_size())
         data = struct.unpack(MD3Vertex.binary_format, data)
         nvertex = MD3Vertex()
-        nvertex.xyz = data[0:3]
+        nvertex.xyz = tuple(data[0:3])
         nvertex.normal = data[3]
         return nvertex
 
@@ -516,15 +556,6 @@ def message(log,msg):
         print(msg)
 
 
-# Convert a XYZ vector to an integer vector for conversion to MD3
-def convert_xyz(xyz):
-    def convert(number, factor):
-        return floor(number * factor)
-    factors = [MD3_XYZ_SCALE] * 3
-    position = map(convert, xyz, factors)
-    return tuple(map(int, position))
-
-
 # A class to help manage individual surfaces within a model
 class BlenderSurface:
     def __init__(self, material):
@@ -628,7 +659,7 @@ class BlenderModelManager:
 
     @staticmethod
     def encode_vertex(position, normal, uv, gzdoom):
-        md3_position = convert_xyz(position)
+        md3_position = MD3Vertex.encode_xyz(position)
         md3_normal = MD3Vertex.encode_normal(normal, gzdoom)
         return (pack(MD3Vertex.binary_format, *md3_position, md3_normal)
               + pack(MD3TexCoord.binary_format, *uv))
@@ -856,7 +887,7 @@ class BlenderModelManager:
                                 vertex_info.normal_index].normal
                         # Set up MD3 vertex
                         nvertex = MD3Vertex()
-                        nvertex.xyz = convert_xyz(vertex_position)
+                        nvertex.xyz = MD3Vertex.encode_xyz(vertex_position)
                         nvertex.normal = MD3Vertex.encode_normal(
                             vertex_normal, self.gzdoom)
                         bsurface.surface.verts.append(nvertex)
@@ -1309,12 +1340,116 @@ class ExportMD3(Operator, ExportHelper, MD3OrientationHelper):
         return context.active_object != None
 
 
-def read_md3(filepath):
+def read_md3(filepath, md3forgzdoom, fix_transform):
+    # Copied from https://docs.python.org/3.5/library/itertools.html#itertools-recipes
+    def pairwise(iterable):
+        "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+        a, b = tee(iterable)
+        next(b, None)
+        return zip(a, b)
+
+    # SurfaceVertex = namedtuple("SurfaceVertex", "surface vertex")
+    # SurfaceEdge = namedtuple("SurfaceEdge", "surface a b")
     with open(filepath, "rb") as md3file:
         nobj = MD3Object.read(md3file)
-        md3_log = bpy.data.texts.new(bpy.path.basename(filepath))
-        print_md3(md3_log, nobj, True)
-        return {'FINISHED'}
+        # md3_log = bpy.data.texts.new(bpy.path.basename(filepath))
+        # print_md3(md3_log, nobj, True)
+        bl_mesh = bpy.data.meshes.new(nobj.name)
+
+        edges = array.array('L')
+        unique_edges = {}
+        unique_vertices = {}
+        vertex_positions = array.array('h')
+        vertex_normals = array.array('H')
+        vertex_orig = array.array('L')
+        vertex_remap = array.array('L')
+
+        polys_to_add = sum(map(lambda sf: len(sf.triangles), nobj.surfaces))
+        loops_to_add = polys_to_add * 3  # All MD3 faces are triangles
+        bl_mesh.polygons.add(polys_to_add)
+        bl_mesh.loops.add(loops_to_add)
+
+        # This also creates a new layer in bl_mesh.uv_layers
+        bl_mesh.uv_textures.new("UVMap")
+
+        # All MD3 faces are triangles
+        for index, poly in enumerate(bl_mesh.polygons):
+            poly.loop_start = index * 3
+            poly.loop_total = 3
+
+        loop_index = 0  # Running for all surfaces
+        # Keep running count of total unique vertices per surface, otherwise,
+        # vertices won't get referenced properly
+        surface_start = 0
+
+        for nsurf in nobj.surfaces:
+
+            first_frame_verts = nsurf.verts[:nsurf.num_verts]
+            for vertex_index, nvertex in enumerate(first_frame_verts):
+                vertex_orig.append(vertex_index)
+                vertex = nvertex.xyz
+                # If the vertices are not remapped, Blender will remove some
+                # triangles when someone uses the "Remove Doubles" operation
+                if vertex not in unique_vertices:
+                    remap_index = len(unique_vertices)
+                    unique_vertices[vertex] = remap_index
+                    vertex_positions.extend(nvertex.xyz)
+                    vertex_normals.append(nvertex.normal)
+                else:
+                    remap_index = unique_vertices[vertex]
+                vertex_remap.append(remap_index)
+
+            for tri_index, ntri in enumerate(nsurf.triangles):
+                # Use the original indexes to get the normal and see if the
+                # triangle should be "smooth" or not
+                normals = tuple(map(
+                    lambda i: nsurf.verts[i].normal, reversed(ntri.indexes)))
+                bl_mesh.polygons[tri_index].use_smooth = (
+                    normals != (normals[0],) * len(normals))
+                # Remap the indices to prevent unwanted vertex merging
+                indexes = tuple(map(
+                    lambda i: vertex_remap[surface_start + i], ntri.indexes))
+                tri_edges = tuple(pairwise(indexes + (indexes[0],)))
+                # Edges with the original indexes, used for UV coordinates
+                o_edges = tuple(pairwise(ntri.indexes + (ntri.indexes[0],)))
+                for edge, oedge in zip(reversed(tri_edges), reversed(o_edges)):
+                    edge_set = frozenset(edge)
+                    if edge_set not in unique_edges:
+                        edge_index = len(unique_edges)
+                        unique_edges[edge_set] = edge_index
+                        edges.extend(edge)
+                    else:
+                        edge_index = unique_edges[edge_set]
+                    uv = nsurf.uv[oedge[0]]
+                    bl_mesh.uv_layers["UVMap"].data[loop_index].uv = (
+                        uv.u, 1 - uv.v)
+                    bl_mesh.loops[loop_index].vertex_index = edge[0]
+                    bl_mesh.loops[loop_index].edge_index = edge_index
+                    loop_index += 1
+
+            # Length of vertex_remap because surface_start is used to correct
+            # the index into vertex_remap
+            surface_start += len(vertex_remap)
+
+        bl_mesh.vertices.add(len(unique_vertices))
+        for index, vertex in enumerate(bl_mesh.vertices):
+            pos = index * 3
+            vertex.co = MD3Vertex.decode_xyz(vertex_positions[pos : pos+3])
+            vertex.normal = MD3Vertex.decode_normal(
+                vertex_normals[index], md3forgzdoom)
+
+        edge_count = len(edges) // 2
+        bl_mesh.edges.add(edge_count)
+        for edge_index in range(edge_count):
+            pos = edge_index * 2
+            bl_mesh.edges[edge_index].vertices = edges[pos : pos+2]
+        # Needed because MD3 X is forward
+        bl_mesh.transform(fix_transform, shape_keys=True)
+        # Add the new object to the scene
+        bl_object = bpy.data.objects.new(nobj.name, bl_mesh)
+        bpy.context.scene.objects.link(bl_object)
+        bpy.context.scene.update()
+    return {'FINISHED'}
 
 
 class ImportMD3(Operator, ImportHelper, MD3OrientationHelper):
@@ -1341,7 +1476,11 @@ class ImportMD3(Operator, ImportHelper, MD3OrientationHelper):
     )
 
     def execute(self, context):
-        return read_md3(self.filepath)
+        args = self.as_keywords(
+            ignore=("filter_glob", "axis_up", "axis_forward"))
+        args["fix_transform"] = axis_conversion(
+            'Z', 'X', self.axis_up, self.axis_forward).to_4x4()
+        return read_md3(**args)
 
 
 def menu_func_export(self, context):
