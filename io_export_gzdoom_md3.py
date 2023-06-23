@@ -40,6 +40,7 @@ from bpy_extras.io_utils import (
 )
 from bpy.types import Operator
 from collections import OrderedDict, namedtuple
+from functools import reduce
 from itertools import starmap, tee
 from io import SEEK_SET
 from math import floor, log10, radians
@@ -1348,6 +1349,11 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
         next(b, None)
         return zip(a, b)
 
+    def mean(seq):
+        count = len(seq)
+        addup = lambda a, b: a + b
+        return reduce(addup, seq) / count
+
     with open(filepath, "rb") as md3file:
         nobj = MD3Object.read(md3file)
 
@@ -1356,6 +1362,7 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
     edges = array.array('L')
     unique_edges = {}
     unique_vertices = {}
+    unique_vnormals = {}
     vertex_positions = array.array('h')
     vertex_normals = array.array('H')
     vertex_remap = array.array('L')
@@ -1394,9 +1401,10 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
                 remap_index = len(unique_vertices)
                 unique_vertices[vertex] = remap_index
                 vertex_positions.extend(nvertex.xyz)
-                vertex_normals.append(nvertex.normal)
             else:
                 remap_index = unique_vertices[vertex]
+            normals = unique_vnormals.setdefault(vertex, [])
+            normals.append(nvertex.normal)
             vertex_remap.append(remap_index)
 
         for tri_index, ntri in enumerate(nsurf.triangles):
@@ -1414,7 +1422,7 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
             tri_edges = tuple(pairwise(indexes + (indexes[0],)))
             # Edges with the original indexes, used for UV coordinates
             o_edges = ntri.indexes
-            for edge, oedge in zip(reversed(tri_edges), reversed(o_edges)):
+            for edge, oedge in zip(tri_edges, o_edges):
                 edge_set = frozenset(edge)
                 if edge_set not in unique_edges:
                     edge_index = len(unique_edges)
@@ -1435,11 +1443,13 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
         surfvtx_start += len(vertex_remap)
 
     bl_mesh.vertices.add(len(unique_vertices))
+    decode_normal = lambda n: MD3Vertex.decode_normal(n, md3forgzdoom)
     for index, vertex in enumerate(bl_mesh.vertices):
         pos = index * 3
-        vertex.co = MD3Vertex.decode_xyz(vertex_positions[pos : pos+3])
-        vertex.normal = MD3Vertex.decode_normal(
-            vertex_normals[index], md3forgzdoom)
+        xyz = tuple(vertex_positions[pos : pos+3])
+        vertex.co = MD3Vertex.decode_xyz(xyz)
+        vertex.normal = mean(tuple(map(
+            decode_normal, unique_vnormals[xyz])))
 
     edge_count = len(edges) // 2
     bl_mesh.edges.add(edge_count)
@@ -1448,6 +1458,7 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
         bl_mesh.edges[edge_index].vertices = edges[pos : pos+2]
     # Needed because MD3 X is forward
     bl_mesh.transform(fix_transform, shape_keys=True)
+    bl_mesh.flip_normals()
     # Add the new object to the scene
     bl_object = bpy.data.objects.new(nobj.name, bl_mesh)
     bpy.context.scene.objects.link(bl_object)
