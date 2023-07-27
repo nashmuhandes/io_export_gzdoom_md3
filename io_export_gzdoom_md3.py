@@ -26,8 +26,8 @@ bl_info = {
         "location": "File > Export > GZDoom model (.md3)",
         "description": "Export mesh to GZDoom model with vertex animation (.md3)",
         "warning": "",
-        "wiki_url": "",
-        "tracker_url": "https://forum.zdoom.org/viewtopic.php?f=232&t=69417",
+        "wiki_url": "https://forum.zdoom.org/viewtopic.php?f=232&t=69417",
+        "tracker_url": "https://github.com/nashmuhandes/io_export_gzdoom_md3/issues",
         "category": "Import-Export"}
 
 import array, bpy, struct, math, time
@@ -1341,8 +1341,9 @@ class ExportMD3(Operator, ExportHelper, MD3OrientationHelper):
         return context.active_object != None
 
 
-def read_md3(filepath, md3forgzdoom, fix_transform):
-    # Copied from https://docs.python.org/3.5/library/itertools.html#itertools-recipes
+def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
+    # Copied from:
+    # https://docs.python.org/3.5/library/itertools.html#itertools-recipes
     def pairwise(iterable):
         "s -> (s0,s1), (s1,s2), (s2, s3), ..."
         a, b = tee(iterable)
@@ -1365,7 +1366,6 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
     unique_vnormals = {}
     vertex_positions = array.array('h')
     vertex_normals = array.array('H')
-    vertex_remap = array.array('L')
 
     polys_to_add = sum(map(lambda sf: len(sf.triangles), nobj.surfaces))
     loops_to_add = polys_to_add * 3  # All MD3 faces are triangles
@@ -1380,14 +1380,18 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
         poly.loop_start = index * 3
         poly.loop_total = 3
 
+    md3frame = max(0, min(md3frame, len(nobj.frames)))
+
     loop_index = 0  # Running for all surfaces
-    # Keep running count of total unique vertices per surface, otherwise,
-    # vertices won't get referenced properly
-    surfvtx_start = 0
+    # Keep running count of total triangles per surface, otherwise,
+    # triangles won't get referenced properly when setting them smooth
     surftri_start = 0
 
     for surf_index, nsurf in enumerate(nobj.surfaces):
-
+        # Indexes for remapped vertices. If the vertices are not remapped,
+        # Blender will remove some triangles when someone uses the
+        # "Remove Doubles" operation
+        vertex_remap = array.array('L')
         # MD3 surface -> Blender material
         surf_mtl = bpy.data.materials.new(nsurf.shader.name)
         bl_mesh.materials.append(surf_mtl)
@@ -1395,8 +1399,6 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
         first_frame_verts = nsurf.verts[:nsurf.num_verts]
         for vertex_index, nvertex in enumerate(first_frame_verts):
             vertex = nvertex.xyz
-            # If the vertices are not remapped, Blender will remove some
-            # triangles when someone uses the "Remove Doubles" operation
             if vertex not in unique_vertices:
                 remap_index = len(unique_vertices)
                 unique_vertices[vertex] = remap_index
@@ -1411,14 +1413,14 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
             # Use the original indexes to get the normal and see if the
             # triangle should be "smooth" or not
             normals = tuple(map(
-                lambda i: nsurf.verts[i].normal, reversed(ntri.indexes)))
+                lambda i: nsurf.verts[i].normal, ntri.indexes))
             bl_mesh.polygons[surftri_start + tri_index].use_smooth = (
                 normals != (normals[0],) * len(normals))
             bl_mesh.polygons[surftri_start + tri_index].material_index = (
                 surf_index)  # MD3 surface -> Blender material
             # Remap the indices to prevent unwanted vertex merging
             indexes = tuple(map(
-                lambda i: vertex_remap[surfvtx_start + i], ntri.indexes))
+                lambda i: vertex_remap[i], ntri.indexes))
             tri_edges = tuple(pairwise(indexes + (indexes[0],)))
             # Edges with the original indexes, used for UV coordinates
             o_edges = ntri.indexes
@@ -1438,9 +1440,6 @@ def read_md3(filepath, md3forgzdoom, fix_transform):
                 loop_index += 1
 
         surftri_start += len(nsurf.triangles)
-        # Length of vertex_remap because surface_start is used to correct
-        # the index into vertex_remap
-        surfvtx_start += len(vertex_remap)
 
     bl_mesh.vertices.add(len(unique_vertices))
     decode_normal = lambda n: MD3Vertex.decode_normal(n, md3forgzdoom)
@@ -1487,6 +1486,13 @@ class ImportMD3(Operator, ImportHelper, MD3OrientationHelper):
         name="GZDoom",
         description="Fix normals when importing a model made for Quake 3",
         default=True,
+    )
+
+    md3frame = IntProperty(
+        name="Frame number",
+        description="The frame to import. Clamped to the range of available "
+                    "frames in the MD3",
+        min=0,
     )
 
     def execute(self, context):
