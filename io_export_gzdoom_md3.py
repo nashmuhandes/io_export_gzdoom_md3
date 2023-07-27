@@ -1385,7 +1385,7 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
     loop_index = 0  # Running for all surfaces
     # Keep running count of total triangles per surface, otherwise,
     # triangles won't get referenced properly when setting them smooth
-    surftri_start = 0
+    surftri = 0
 
     for surf_index, nsurf in enumerate(nobj.surfaces):
         # Indexes for remapped vertices. If the vertices are not remapped,
@@ -1410,14 +1410,14 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
             normals.append(nvertex.normal)
             vertex_remap.append(remap_index)
 
-        for tri_index, ntri in enumerate(nsurf.triangles):
+        for ntri in nsurf.triangles:
             # Use the original indexes to get the normal and see if the
             # triangle should be "smooth" or not
             normals = tuple(map(
                 lambda i: nsurf.verts[i].normal, ntri.indexes))
-            bl_mesh.polygons[surftri_start + tri_index].use_smooth = (
+            bl_mesh.polygons[surftri].use_smooth = (
                 normals != (normals[0],) * len(normals))
-            bl_mesh.polygons[surftri_start + tri_index].material_index = (
+            bl_mesh.polygons[surftri].material_index = (
                 surf_index)  # MD3 surface -> Blender material
             # Remap the indices to prevent unwanted vertex merging
             indexes = tuple(map(
@@ -1439,8 +1439,7 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
                 bl_mesh.loops[loop_index].vertex_index = edge[0]
                 bl_mesh.loops[loop_index].edge_index = edge_index
                 loop_index += 1
-
-        surftri_start += len(nsurf.triangles)
+            surftri += 1
 
     bl_mesh.vertices.add(len(unique_vertices))
     decode_normal = lambda n: MD3Vertex.decode_normal(n, md3forgzdoom)
