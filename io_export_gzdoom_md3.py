@@ -1364,6 +1364,8 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
     unique_edges = {}
     unique_vertices = {}
     unique_vnormals = {}
+    unmapped_edges = {}  # Unmapped edges
+    remapped_verts = []  # Remapped vertices per surface
     vertex_positions = array.array('h')
     vertex_normals = array.array('H')
 
@@ -1415,31 +1417,39 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
             # triangle should be "smooth" or not
             normals = tuple(map(
                 lambda i: nsurf.verts[i].normal, ntri.indexes))
-            bl_mesh.polygons[surftri].use_smooth = (
-                normals != (normals[0],) * len(normals))
+            is_smooth = normals != (normals[0],) * len(normals)
+            bl_mesh.polygons[surftri].use_smooth = is_smooth
             bl_mesh.polygons[surftri].material_index = (
                 surf_index)  # MD3 surface -> Blender material
             # Remap the indices to prevent unwanted vertex merging
-            indexes = tuple(map(
+            remap_indexes = tuple(map(
                 lambda i: vertex_remap[i], ntri.indexes))
-            tri_edges = tuple(pairwise(indexes + (indexes[0],)))
+            remap_edges = pairwise(remap_indexes + (remap_indexes[0],))
             # Edges with the original indexes, used for UV coordinates
-            o_edges = ntri.indexes
-            for edge, oedge in zip(tri_edges, o_edges):
-                edge_set = frozenset(edge)
+            orig_edges = pairwise(ntri.indexes + (ntri.indexes[0],))
+            for remap_edge, orig_edge in zip(remap_edges, orig_edges):
+                # Find edge index
+                edge_set = frozenset(remap_edge)
                 if edge_set not in unique_edges:
                     edge_index = len(unique_edges)
                     unique_edges[edge_set] = edge_index
-                    edges.extend(edge)
+                    edges.extend(remap_edge)
                 else:
                     edge_index = unique_edges[edge_set]
-                uv = nsurf.uv[oedge]
+                # Add edge to unmapped edges
+                unmapped = unmapped_edges.setdefault(edge_set, set())
+                unmapped.add(frozenset(orig_edge))
+                # Assign UV coordinates
+                orig_vert = orig_edge[0]
+                uv = nsurf.uv[orig_vert]
                 bl_mesh.uv_layers["UVMap"].data[loop_index].uv = (
                     uv.u, 1 - uv.v)
-                bl_mesh.loops[loop_index].vertex_index = edge[0]
+                # Assign vertex and edge index
+                bl_mesh.loops[loop_index].vertex_index = remap_edge[0]
                 bl_mesh.loops[loop_index].edge_index = edge_index
                 loop_index += 1
             surftri += 1
+        remapped_verts.append(vertex_remap)
 
     bl_mesh.vertices.add(len(unique_vertices))
     decode_normal = lambda n: MD3Vertex.decode_normal(n, md3forgzdoom)
@@ -1455,11 +1465,47 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
     for edge_index in range(edge_count):
         pos = edge_index * 2
         bl_mesh.edges[edge_index].vertices = edges[pos : pos+2]
+
+    sharp_edges = 0
+    surftri = 0
+    for surface_index, nsurf in enumerate(nobj.surfaces):
+        vertex_remap = remapped_verts[surface_index]
+        for ntri in nsurf.triangles:
+            is_smooth = bl_mesh.polygons[surftri].use_smooth
+            if not is_smooth:
+                surftri += 1
+                continue
+            # Find original and remapped edges
+            remap_indexes = tuple(map(
+                lambda i: vertex_remap[i], ntri.indexes))
+            remap_edges = pairwise(remap_indexes + (remap_indexes[0],))
+            orig_edges = pairwise(ntri.indexes + (ntri.indexes[0],))
+            for remap_edge, orig_edge in zip(remap_edges, orig_edges):
+                # Attempt to find the other edge
+                # This has to be wrapped in a list because of how the
+                # set.difference method works
+                orig_edge_set = [frozenset(orig_edge)]
+                edge_set = frozenset(remap_edge)
+                edge_index = unique_edges[edge_set]
+                other_edge = unmapped_edges[edge_set].difference(orig_edge_set)
+                # If the original indices of the other edge are not equal to the
+                # original indices of this edge, other_edge will have one or
+                # more edges in it.
+                is_sharp = len(other_edge) >= 1
+                bl_mesh.edges[edge_index].use_edge_sharp = is_sharp
+                sharp_edges += is_sharp  # Automatically coerced to a 1 or 0
+            surftri += 1
+
+    bl_mesh.show_edge_sharp = True
     # Needed because MD3 X is forward
     bl_mesh.transform(fix_transform, shape_keys=True)
     bl_mesh.flip_normals()
     # Add the new object to the scene
     bl_object = bpy.data.objects.new(nobj.name, bl_mesh)
+    if sharp_edges > 0:
+        modifier = bl_object.modifiers.new("Edge fix", 'EDGE_SPLIT')
+        modifier.use_edge_angle = False
+        modifier.use_edge_sharp = True
     bpy.context.scene.objects.link(bl_object)
     bpy.context.scene.update()
     return {'FINISHED'}
