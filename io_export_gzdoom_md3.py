@@ -1396,8 +1396,9 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
         surf_mtl = bpy.data.materials.new(nsurf.shader.name)
         bl_mesh.materials.append(surf_mtl)
 
-        first_frame_verts = nsurf.verts[:nsurf.num_verts]
-        for vertex_index, nvertex in enumerate(first_frame_verts):
+        frame_verts = nsurf.verts[
+            md3frame*nsurf.num_verts : (md3frame+1)*nsurf.num_verts]
+        for vertex_index, nvertex in enumerate(frame_verts):
             vertex = nvertex.xyz
             if vertex not in unique_vertices:
                 remap_index = len(unique_vertices)
