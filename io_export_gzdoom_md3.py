@@ -1389,7 +1389,9 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
     # triangles won't get referenced properly when setting them smooth
     surftri = 0
 
-    for surf_index, nsurf in enumerate(nobj.surfaces):
+    EdgeReference = namedtuple("EdgeReference", "edge surface_index")
+
+    for surface_index, nsurf in enumerate(nobj.surfaces):
         # Indexes for remapped vertices. If the vertices are not remapped,
         # Blender will remove some triangles when someone uses the
         # "Remove Doubles" operation
@@ -1416,11 +1418,11 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
             # Use the original indexes to get the normal and see if the
             # triangle should be "smooth" or not
             normals = tuple(map(
-                lambda i: nsurf.verts[i].normal, ntri.indexes))
+                lambda i: frame_verts[i].normal, ntri.indexes))
             is_smooth = normals != (normals[0],) * len(normals)
             bl_mesh.polygons[surftri].use_smooth = is_smooth
             bl_mesh.polygons[surftri].material_index = (
-                surf_index)  # MD3 surface -> Blender material
+                surface_index)  # MD3 surface -> Blender material
             # Remap the indices to prevent unwanted vertex merging
             remap_indexes = tuple(map(
                 lambda i: vertex_remap[i], ntri.indexes))
@@ -1438,7 +1440,10 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
                     edge_index = unique_edges[edge_set]
                 # Add edge to unmapped edges
                 unmapped = unmapped_edges.setdefault(edge_set, set())
-                unmapped.add(frozenset(orig_edge))
+                unmapped.add(EdgeReference(
+                    edge=frozenset(orig_edge),
+                    surface_index=surface_index
+                ))
                 # Assign UV coordinates
                 orig_vert = orig_edge[0]
                 uv = nsurf.uv[orig_vert]
@@ -1466,10 +1471,14 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
         pos = edge_index * 2
         bl_mesh.edges[edge_index].vertices = edges[pos : pos+2]
 
+    # This comes after all the geometry has been set up so that the relevant
+    # information will be available
     sharp_edges = 0
     surftri = 0
     for surface_index, nsurf in enumerate(nobj.surfaces):
         vertex_remap = remapped_verts[surface_index]
+        frame_verts = nsurf.verts[
+            md3frame*nsurf.num_verts : (md3frame+1)*nsurf.num_verts]
         for ntri in nsurf.triangles:
             is_smooth = bl_mesh.polygons[surftri].use_smooth
             if not is_smooth:
@@ -1484,25 +1493,54 @@ def read_md3(filepath, md3forgzdoom, md3frame, fix_transform):
                 # Attempt to find the other edge
                 # This has to be wrapped in a list because of how the
                 # set.difference method works
-                orig_edge_set = [frozenset(orig_edge)]
+                orig_edge_set = [EdgeReference(
+                    edge=frozenset(orig_edge),
+                    surface_index=surface_index
+                )]
                 edge_set = frozenset(remap_edge)
                 edge_index = unique_edges[edge_set]
                 other_edge = unmapped_edges[edge_set].difference(orig_edge_set)
-                # If the original indices of the other edge are not equal to the
-                # original indices of this edge, other_edge will have one or
-                # more edges in it.
+                # If the original indices of the other edge are not equal to
+                # the original indices of this edge, other_edge will have one
+                # or more edges in it.
                 is_sharp = len(other_edge) >= 1
+                # Un-sharpen the edge if both normals for both vertices on both
+                # edges match
+                if is_sharp:
+                    # Match the other edge's vertex positions to this edge
+                    # other_edge example:
+                    # {EdgeReference(edge=frozenset({4, 7}), surface_index=1)}
+                    other_edge = tuple(other_edge)[0]
+                    other_surf = (nobj.surfaces[other_edge.surface_index]
+                        if other_edge.surface_index != surface_index
+                        else nsurf)
+                    other_frame_verts = other_surf.verts[
+                        md3frame*other_surf.num_verts :
+                        (md3frame+1)*other_surf.num_verts
+                    ]
+                    other_edge = tuple(other_edge.edge)
+                    if (other_frame_verts[other_edge[0]].xyz !=
+                            frame_verts[orig_edge[0]].xyz):
+                        other_edge = tuple(reversed(other_edge))
+                    # Now that the positions match, I can compare the normals
+                    if     (frame_verts[orig_edge[0]].normal ==
+                            other_frame_verts[other_edge[0]].normal and
+                            frame_verts[orig_edge[1]].normal ==
+                            other_frame_verts[other_edge[1]].normal):
+                        # Both normals are equal, so the edge can be
+                        # un-sharpened
+                        is_sharp = False
                 bl_mesh.edges[edge_index].use_edge_sharp = is_sharp
                 sharp_edges += is_sharp  # Automatically coerced to a 1 or 0
             surftri += 1
 
-    bl_mesh.show_edge_sharp = True
     # Needed because MD3 X is forward
     bl_mesh.transform(fix_transform, shape_keys=True)
     bl_mesh.flip_normals()
     # Add the new object to the scene
     bl_object = bpy.data.objects.new(nobj.name, bl_mesh)
     if sharp_edges > 0:
+        bl_mesh.show_edge_sharp = True
         modifier = bl_object.modifiers.new("Edge fix", 'EDGE_SPLIT')
         modifier.use_edge_angle = False
         modifier.use_edge_sharp = True
