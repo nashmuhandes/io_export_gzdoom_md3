@@ -504,7 +504,6 @@ class BlenderModelManager:
         # calc_normals_split recalculates normals, even on meshes without
         # custom normals. If I didn't do this, the vertex normals would be all
         # wrong.
-        obj_mesh.calc_normals_split()
         obj_mesh.calc_loop_triangles()
         # See what materials the mesh references, and add new surfaces for
         # those materials if necessary
@@ -543,8 +542,8 @@ class BlenderModelManager:
             # get the vertex position
             vertex = obj_mesh.vertices[obj_mesh.loops[loop_index].vertex_index]
             vertex_position = vertex.co
-            # Calculated automatically by obj.calc_normals_split()
-            vertex_normal = obj_mesh.loops[loop_index].normal
+            # Updated automatically by Blender
+            vertex_normal = obj_mesh.corner_normals[loop_index].vector.copy()
             # Get UV coordinates for this vertex.
             face_uvs = obj_mesh.uv_layers.active.data[loop_index]
             vertex_uv = face_uvs.uv
@@ -615,7 +614,6 @@ class BlenderModelManager:
                 obj_mesh = mesh_obj.to_mesh(depsgraph=self.depsgraph)
                 # Set up obj_mesh
                 obj_mesh.transform(self.fix_transform @ mesh_obj.matrix_world)
-                obj_mesh.calc_normals_split()
                 # obj_mesh.calc_loop_triangles()  # Stored in BlenderSurface
                 # Set up frame bounds/origin/radius
                 if not nframe_bounds_set:
@@ -645,7 +643,8 @@ class BlenderModelManager:
                         vertex_position = obj_mesh.vertices[
                             obj_mesh.loops[loop].vertex_index].co
                         # Get vertex normal
-                        vertex_normal = obj_mesh.loops[loop].normal
+                        vertex_normal = obj_mesh.corner_normals[
+                            loop].vector.copy()
                         # Set up MD3 vertex
                         nvertex = MD3Vertex()
                         nvertex.xyz = convert_xyz(vertex_position)
